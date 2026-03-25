@@ -1,0 +1,17 @@
+services:
+  curator:
+    image: ghcr.io/runkaiz/curatorr:latest
+    container_name: the-curator
+    ports:
+      - "3000:3000"
+    volumes:
+      - /mnt/user/appdata/the-curator/data:/data
+    environment:
+      - DATABASE_URL=/data/curator.db
+      - PLEX_URL=${PLEX_URL}
+      - PLEX_TOKEN=${PLEX_TOKEN}
+      - TAUTULLI_URL=${TAUTULLI_URL}
+      - TAUTULLI_API_KEY=${TAUTULLI_API_KEY}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - SESSION_SECRET=${SESSION_SECRET}
+    restart: unless-stopped

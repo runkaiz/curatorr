@@ -1,0 +1,16 @@
+services:
+  curator:
+    build: .
+    container_name: the-curator
+    ports:
+      - "3000:3000"
+    volumes:
+      - curator_data:/data
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=/data/curator.db
+    restart: unless-stopped
+
+volumes:
+  curator_data:
