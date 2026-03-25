@@ -78,7 +78,6 @@ sqlite.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS watch_history_unique_idx ON watch_history(item_id, user, watched_at);
   CREATE INDEX IF NOT EXISTS watch_history_item_idx ON watch_history(item_id);
   CREATE INDEX IF NOT EXISTS watch_history_user_idx ON watch_history(user);
-  CREATE INDEX IF NOT EXISTS library_items_pruning_score_idx ON library_items(pruning_score DESC);
 `);
 
 // Migration: add pruning_score column to existing databases
@@ -87,5 +86,9 @@ try {
 } catch {
   // Column already exists, ignore
 }
+
+sqlite.exec(`
+  CREATE INDEX IF NOT EXISTS library_items_pruning_score_idx ON library_items(pruning_score DESC);
+`);
 
 export const db = drizzle(sqlite, { schema });
