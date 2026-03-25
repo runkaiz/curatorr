@@ -4,6 +4,7 @@ import { getLibrarySections, getLibraryItems } from "./plex";
 import { getLibraryMediaInfo, getHistory } from "./tautulli";
 import type { SyncResult, PlexMediaItem, TautulliMediaItem } from "./types";
 import { sql } from "drizzle-orm";
+import { computeAllPruningScores } from "./pruning";
 
 const BATCH_SIZE = 500;
 
@@ -125,6 +126,10 @@ export async function syncLibrary(
       onProgress?.(`Removed ${itemsRemoved} items no longer in Plex`);
     }
   }
+
+  // Compute pruning scores
+  onProgress?.("Computing pruning scores...");
+  computeAllPruningScores();
 
   const durationMs = Date.now() - startTime;
   onProgress?.(`Sync complete: ${itemsSynced} items, ${historyEntries} history entries, ${itemsRemoved} removed in ${(durationMs / 1000).toFixed(1)}s`);

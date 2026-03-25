@@ -22,6 +22,7 @@ interface LibraryItem {
   resolution: string | null;
   episodeCount: number | null;
   filePath: string | null;
+  pruningScore: number | null;
   isPermanent: boolean;
 }
 
@@ -44,7 +45,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
   const [activeFilter, setActiveFilter] = useState("");
   const [hidePermanent, setHidePermanent] = useState(true);
   const [sortState, setSortState] = useState<SortState>({
-    column: "size",
+    column: "score",
     direction: "desc",
   });
 
@@ -169,6 +170,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
     items.length > 0 && items.every((item) => selected.has(item.id));
 
   const columns = [
+    { key: "score", label: "Score", sortable: true },
     { key: "title", label: "Title", sortable: true },
     { key: "type", label: "Type", sortable: false },
     { key: "size", label: "Size", sortable: true },
@@ -222,7 +224,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
               items.length === 0 &&
               Array.from({ length: 10 }).map((_, i) => (
                 <tr key={i}>
-                  <td colSpan={10} className="px-3 py-3">
+                  <td colSpan={11} className="px-3 py-3">
                     <div className="h-4 animate-pulse rounded bg-slate-800" />
                   </td>
                 </tr>
@@ -230,7 +232,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
 
             {!loading && error && (
               <tr>
-                <td colSpan={10} className="px-3 py-10 text-center">
+                <td colSpan={11} className="px-3 py-10 text-center">
                   <p className="text-red-400">Failed to load items</p>
                   <p className="mt-1 text-xs text-slate-500">{error}</p>
                   <button
@@ -246,7 +248,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
             {!loading && !error && items.length === 0 && (
               <tr>
                 <td
-                  colSpan={10}
+                  colSpan={11}
                   className="px-3 py-10 text-center text-slate-500"
                 >
                   No items match this filter.
@@ -268,6 +270,9 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
                     onChange={() => toggleSelect(item.id)}
                     className="rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500 focus:ring-offset-slate-900"
                   />
+                </td>
+                <td className="px-3 py-2">
+                  <ScoreBadge score={item.pruningScore} />
                 </td>
                 <td className="max-w-[200px] truncate px-3 py-2 font-medium text-slate-200" title={item.title}>
                   {item.title}
@@ -349,5 +354,30 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
         onClearSelection={() => setSelected(new Set())}
       />
     </div>
+  );
+}
+
+function ScoreBadge({ score }: { score: number | null }) {
+  if (score === null || score === undefined) {
+    return <span className="text-xs text-slate-600">—</span>;
+  }
+
+  let colorClass: string;
+  if (score >= 76) {
+    colorClass = "bg-red-500/20 text-red-400";
+  } else if (score >= 51) {
+    colorClass = "bg-orange-500/20 text-orange-400";
+  } else if (score >= 26) {
+    colorClass = "bg-yellow-500/20 text-yellow-400";
+  } else {
+    colorClass = "bg-green-500/20 text-green-400";
+  }
+
+  return (
+    <span
+      className={`inline-flex min-w-[2.5rem] justify-center rounded-full px-2 py-0.5 text-xs font-semibold ${colorClass}`}
+    >
+      {score}
+    </span>
   );
 }

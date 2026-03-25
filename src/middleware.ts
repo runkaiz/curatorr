@@ -61,6 +61,7 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/sync") ||
     pathname.startsWith("/api/permanent") ||
     pathname.startsWith("/api/stats") ||
+    pathname.startsWith("/api/pruning") ||
     pathname.startsWith("/api/auth/logout")
   ) {
     if (!isAuthenticated) {
@@ -82,6 +83,7 @@ export const config = {
     "/api/sync/:path*",
     "/api/permanent/:path*",
     "/api/stats/:path*",
+    "/api/pruning/:path*",
     "/api/auth/logout/:path*",
     "/login",
   ],

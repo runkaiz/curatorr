@@ -26,6 +26,7 @@ export const libraryItems = sqliteTable(
     filePath: text("file_path"),
     thumbUrl: text("thumb_url"),
     updatedAt: integer("updated_at"),
+    pruningScore: integer("pruning_score"),
   },
   (table) => ({
     typeIdx: index("library_items_type_idx").on(table.type),
@@ -33,6 +34,9 @@ export const libraryItems = sqliteTable(
     pruningIdx: index("library_items_pruning_idx").on(
       table.playCount,
       table.fileSizeBytes
+    ),
+    pruningScoreIdx: index("library_items_pruning_score_idx").on(
+      table.pruningScore
     ),
   })
 );
@@ -61,6 +65,12 @@ export const watchHistory = sqliteTable(
     userIdx: index("watch_history_user_idx").on(table.user),
   })
 );
+
+export const pruningConfig = sqliteTable("pruning_config", {
+  key: text("key").primaryKey(),
+  value: real("value").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
 
 export const permanentItems = sqliteTable("permanent_items", {
   itemId: text("item_id")

@@ -2,6 +2,7 @@
 
 const filters = [
   { value: "", label: "All" },
+  { value: "high_score", label: "High Score (70+)" },
   { value: "never_watched", label: "Never Watched" },
   { value: "watched_once_year_ago", label: "Watched Once (1yr+)" },
   { value: "largest", label: "Largest" },

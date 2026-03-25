@@ -73,6 +73,7 @@ export async function GET(request: NextRequest) {
         bitrate: libraryItems.bitrate,
         episodeCount: libraryItems.episodeCount,
         filePath: libraryItems.filePath,
+        pruningScore: libraryItems.pruningScore,
         isPermanent: sql<boolean>`${permanentItems.itemId} IS NOT NULL`.as(
           "is_permanent"
         ),
@@ -145,6 +146,17 @@ function handleFilteredQuery(
   const sortClause = getFilterSortClause(sort, order, filter);
 
   switch (filter) {
+    case "high_score":
+      filterSql = `
+        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
+        FROM library_items li
+        LEFT JOIN permanent_items p ON li.id = p.item_id
+        WHERE li.pruning_score >= 70 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ORDER BY li.pruning_score DESC
+        LIMIT ${limit} OFFSET ${offset}
+      `;
+      break;
+
     case "never_watched":
       filterSql = `
         SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
@@ -297,6 +309,7 @@ function handleFilteredQuery(
     bitrate: row.bitrate,
     episodeCount: row.episode_count,
     filePath: row.file_path,
+    pruningScore: row.pruning_score ?? null,
     isPermanent: !!row.is_permanent,
   }));
 
@@ -322,6 +335,7 @@ function getFilterSortClause(sort: string, order: string, filter: string): strin
     play_count: "li.play_count",
     last_viewed: "li.last_viewed_at",
     added_at: "li.added_at",
+    score: "li.pruning_score",
   }[sort] || "li.file_size_bytes";
 
   return `ORDER BY ${col} ${dir}`;
@@ -341,6 +355,8 @@ function getSortColumn(sort: string) {
       return libraryItems.playCount;
     case "last_viewed":
       return libraryItems.lastViewedAt;
+    case "score":
+      return libraryItems.pruningScore;
     case "added_at":
     default:
       return libraryItems.addedAt;

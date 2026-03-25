@@ -35,7 +35,8 @@ sqlite.exec(`
     episode_count INTEGER,
     file_path TEXT,
     thumb_url TEXT,
-    updated_at INTEGER
+    updated_at INTEGER,
+    pruning_score INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS watch_history (
@@ -53,12 +54,37 @@ sqlite.exec(`
     created_at INTEGER NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS pruning_config (
+    key TEXT PRIMARY KEY NOT NULL,
+    value REAL NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+
+  -- Add pruning_score column if it doesn't exist (migration for existing DBs)
+  INSERT OR IGNORE INTO pruning_config (key, value, updated_at) VALUES
+    ('engagement_weight', 0.30, 0),
+    ('recency_weight', 0.25, 0),
+    ('size_weight', 0.15, 0),
+    ('reach_weight', 0.15, 0),
+    ('resolution_weight', 0.05, 0),
+    ('staleness_weight', 0.10, 0),
+    ('grace_period_days', 30, 0),
+    ('grace_period_max_score', 50, 0);
+
   CREATE INDEX IF NOT EXISTS library_items_type_idx ON library_items(type);
   CREATE INDEX IF NOT EXISTS library_items_year_idx ON library_items(year);
   CREATE INDEX IF NOT EXISTS library_items_pruning_idx ON library_items(play_count, file_size_bytes);
   CREATE UNIQUE INDEX IF NOT EXISTS watch_history_unique_idx ON watch_history(item_id, user, watched_at);
   CREATE INDEX IF NOT EXISTS watch_history_item_idx ON watch_history(item_id);
   CREATE INDEX IF NOT EXISTS watch_history_user_idx ON watch_history(user);
+  CREATE INDEX IF NOT EXISTS library_items_pruning_score_idx ON library_items(pruning_score DESC);
 `);
+
+// Migration: add pruning_score column to existing databases
+try {
+  sqlite.exec(`ALTER TABLE library_items ADD COLUMN pruning_score INTEGER`);
+} catch {
+  // Column already exists, ignore
+}
 
 export const db = drizzle(sqlite, { schema });
