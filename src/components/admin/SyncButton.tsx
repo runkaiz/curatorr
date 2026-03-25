@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useToast } from "@/components/shared/Toast";
 
 interface SyncResult {
   itemsSynced: number;
@@ -16,6 +17,7 @@ export default function SyncButton({
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<SyncResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   async function handleSync() {
     setSyncing(true);
@@ -24,15 +26,20 @@ export default function SyncButton({
 
     try {
       const res = await fetch("/api/sync", { method: "POST" });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || "Sync failed");
+        throw new Error(data.message || data.error || "Sync failed");
       }
-      const data = await res.json();
       setResult(data);
+      toast(
+        `Synced ${data.itemsSynced} items and ${data.historyEntries} history entries`,
+        "success"
+      );
       onSyncComplete();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sync failed");
+      const msg = err instanceof Error ? err.message : "Sync failed";
+      setError(msg);
+      toast(msg, "error");
     } finally {
       setSyncing(false);
     }

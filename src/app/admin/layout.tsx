@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useToast } from "@/components/shared/Toast";
 
 export default function AdminLayout({
   children,
@@ -10,10 +11,16 @@ export default function AdminLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const { toast } = useToast();
 
   async function handleLogout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    router.push("/");
+    try {
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      if (!res.ok) throw new Error("Logout failed");
+      router.push("/");
+    } catch {
+      toast("Failed to logout", "error");
+    }
   }
 
   const navLinks = [

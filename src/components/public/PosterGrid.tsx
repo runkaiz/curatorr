@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import PosterCard from "./PosterCard";
 import FilterBar from "./FilterBar";
+import { useToast } from "@/components/shared/Toast";
 
 interface LibraryItem {
   id: string;
@@ -28,6 +29,8 @@ export default function PosterGrid() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   // Filters
   const [type, setType] = useState("");
@@ -38,6 +41,7 @@ export default function PosterGrid() {
   const fetchItems = useCallback(
     async (pageNum: number, append: boolean = false) => {
       setLoading(true);
+      setError(null);
       try {
         const params = new URLSearchParams();
         if (type) params.set("type", type);
@@ -49,7 +53,10 @@ export default function PosterGrid() {
         params.set("limit", "50");
 
         const res = await fetch(`/api/library?${params}`);
-        if (!res.ok) throw new Error("Failed to fetch");
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || `Server error (${res.status})`);
+        }
         const data: LibraryResponse = await res.json();
 
         setItems((prev) => (append ? [...prev, ...data.items] : data.items));
@@ -58,12 +65,14 @@ export default function PosterGrid() {
         setTotalPages(data.totalPages);
         if (data.genres.length > 0) setGenres(data.genres);
       } catch (err) {
-        console.error("Failed to fetch library:", err);
+        const msg = err instanceof Error ? err.message : "Failed to load library";
+        setError(msg);
+        toast(msg, "error");
       } finally {
         setLoading(false);
       }
     },
-    [type, genre, decade, sort]
+    [type, genre, decade, sort, toast]
   );
 
   // Reset to page 1 when filters change
@@ -93,7 +102,20 @@ export default function PosterGrid() {
         onSortChange={(v) => setSort(v)}
       />
 
-      {!loading && items.length === 0 && (
+      {!loading && error && (
+        <div className="py-20 text-center">
+          <p className="text-lg text-red-500 dark:text-red-400">Failed to load library</p>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{error}</p>
+          <button
+            onClick={() => fetchItems(1)}
+            className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && items.length === 0 && (
         <div className="py-20 text-center text-slate-500 dark:text-slate-400">
           <p className="text-lg">No items found</p>
           <p className="mt-1 text-sm">

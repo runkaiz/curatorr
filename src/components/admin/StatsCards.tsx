@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatFileSize, formatRelativeDate } from "@/components/shared/formatters";
+import { useToast } from "@/components/shared/Toast";
 
 interface Stats {
   totalSize: number;
@@ -22,15 +23,28 @@ interface Stats {
 export default function StatsCards({ refreshKey }: { refreshKey: number }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     fetch("/api/stats")
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.error || `Server error (${r.status})`);
+        }
+        return r.json();
+      })
       .then((data) => setStats(data))
-      .catch(console.error)
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : "Failed to load stats";
+        setError(msg);
+        toast(msg, "error");
+      })
       .finally(() => setLoading(false));
-  }, [refreshKey]);
+  }, [refreshKey, toast]);
 
   if (loading) {
     return (
@@ -41,6 +55,14 @@ export default function StatsCards({ refreshKey }: { refreshKey: number }) {
             className="h-24 animate-pulse rounded-lg bg-slate-800 border border-slate-700"
           />
         ))}
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-500/30 bg-red-950/20 p-4 text-center text-sm text-red-400">
+        Failed to load stats: {error}
       </div>
     );
   }

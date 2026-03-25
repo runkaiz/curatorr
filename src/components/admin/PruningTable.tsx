@@ -7,6 +7,7 @@ import {
 } from "@/components/shared/formatters";
 import AdminFilterBar from "./AdminFilterBar";
 import SpaceReclaimBar from "./SpaceReclaimBar";
+import { useToast } from "@/components/shared/Toast";
 
 interface LibraryItem {
   id: string;
@@ -37,6 +38,8 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const { toast } = useToast();
 
   const [activeFilter, setActiveFilter] = useState("");
   const [hidePermanent, setHidePermanent] = useState(true);
@@ -52,6 +55,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const params = new URLSearchParams();
       if (activeFilter) params.set("filter", activeFilter);
@@ -62,7 +66,10 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
       params.set("limit", String(PAGE_SIZE));
 
       const res = await fetch(`/api/library?${params}`);
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Server error (${res.status})`);
+      }
       const data = await res.json();
 
       setItems(data.items);
@@ -76,11 +83,13 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
       }
       setSizeMap(newSizeMap);
     } catch (err) {
-      console.error("Failed to fetch items:", err);
+      const msg = err instanceof Error ? err.message : "Failed to load items";
+      setError(msg);
+      toast(msg, "error");
     } finally {
       setLoading(false);
     }
-  }, [activeFilter, hidePermanent, sortState, page, refreshKey]);
+  }, [activeFilter, hidePermanent, sortState, page, refreshKey, toast]);
 
   useEffect(() => {
     fetchItems();
@@ -129,18 +138,25 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
 
   async function handleMarkPermanent() {
     try {
-      const promises = Array.from(selected).map((id) =>
-        fetch("/api/permanent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ itemId: id }),
-        })
+      const results = await Promise.all(
+        Array.from(selected).map((id) =>
+          fetch("/api/permanent", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ itemId: id }),
+          })
+        )
       );
-      await Promise.all(promises);
+      const failed = results.filter((r) => !r.ok).length;
+      if (failed > 0) {
+        toast(`${failed} item(s) failed to mark as permanent`, "error");
+      } else {
+        toast(`Marked ${selected.size} item(s) as permanent`, "success");
+      }
       setSelected(new Set());
       fetchItems();
     } catch (err) {
-      console.error("Failed to mark permanent:", err);
+      toast("Failed to mark items as permanent", "error");
     }
   }
 
@@ -212,7 +228,22 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
                 </tr>
               ))}
 
-            {!loading && items.length === 0 && (
+            {!loading && error && (
+              <tr>
+                <td colSpan={10} className="px-3 py-10 text-center">
+                  <p className="text-red-400">Failed to load items</p>
+                  <p className="mt-1 text-xs text-slate-500">{error}</p>
+                  <button
+                    onClick={() => fetchItems()}
+                    className="mt-3 rounded bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-700"
+                  >
+                    Retry
+                  </button>
+                </td>
+              </tr>
+            )}
+
+            {!loading && !error && items.length === 0 && (
               <tr>
                 <td
                   colSpan={10}

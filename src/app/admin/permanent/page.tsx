@@ -5,6 +5,7 @@ import {
   formatFileSize,
   formatRelativeDate,
 } from "@/components/shared/formatters";
+import { useToast } from "@/components/shared/Toast";
 
 interface PermanentItem {
   itemId: string;
@@ -20,22 +21,30 @@ interface PermanentItem {
 export default function PermanentPage() {
   const [items, setItems] = useState<PermanentItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editNote, setEditNote] = useState("");
+  const { toast } = useToast();
 
   const fetchItems = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch("/api/permanent");
-      if (!res.ok) throw new Error("Failed to fetch");
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Server error (${res.status})`);
+      }
       const data = await res.json();
       setItems(data.items);
     } catch (err) {
-      console.error("Failed to fetch permanent items:", err);
+      const msg = err instanceof Error ? err.message : "Failed to load permanent items";
+      setError(msg);
+      toast(msg, "error");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     fetchItems();
@@ -48,8 +57,9 @@ export default function PermanentPage() {
       });
       if (!res.ok) throw new Error("Failed to remove");
       setItems((prev) => prev.filter((i) => i.itemId !== itemId));
+      toast("Item removed from permanent collection", "success");
     } catch (err) {
-      console.error("Failed to remove permanent item:", err);
+      toast("Failed to remove item", "error");
     }
   }
 
@@ -72,8 +82,9 @@ export default function PermanentPage() {
         )
       );
       setEditingId(null);
+      toast("Note saved", "success");
     } catch (err) {
-      console.error("Failed to update note:", err);
+      toast("Failed to save note", "error");
     }
   }
 
@@ -101,7 +112,20 @@ export default function PermanentPage() {
         </div>
       )}
 
-      {!loading && items.length === 0 && (
+      {!loading && error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-950/20 py-16 text-center">
+          <p className="text-red-400">Failed to load permanent items</p>
+          <p className="mt-1 text-sm text-slate-500">{error}</p>
+          <button
+            onClick={() => fetchItems()}
+            className="mt-4 rounded bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && items.length === 0 && (
         <div className="rounded-lg border border-slate-700 py-16 text-center">
           <p className="text-slate-400">No permanent items yet.</p>
           <p className="mt-1 text-sm text-slate-500">
