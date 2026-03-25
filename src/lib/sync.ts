@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { libraryItems, permanentItems, watchHistory } from "@/db/schema";
+import { libraryItems, permanentItems, watchHistory, syncSections } from "@/db/schema";
 import { getLibrarySections, getLibraryItems } from "./plex";
 import { getLibraryMediaInfo, getHistory } from "./tautulli";
 import type { SyncResult, PlexMediaItem, TautulliMediaItem } from "./types";
@@ -17,7 +17,22 @@ export async function syncLibrary(
   const knownItemIds = new Set<string>();
 
   onProgress?.("Fetching library sections from Plex...");
-  const sections = await getLibrarySections();
+  const allSections = await getLibrarySections();
+
+  // Filter to only enabled sections (if configured)
+  const savedSections = db.select().from(syncSections).all();
+  const hasConfig = savedSections.length > 0;
+  let sections = allSections;
+
+  if (hasConfig) {
+    const enabledKeys = new Set(
+      savedSections.filter((s) => s.enabled).map((s) => s.key)
+    );
+    sections = allSections.filter((s) => enabledKeys.has(s.key));
+    onProgress?.(
+      `Syncing ${sections.length} of ${allSections.length} libraries...`
+    );
+  }
 
   for (const section of sections) {
     onProgress?.(`Fetching items from "${section.title}" (${section.type})...`);

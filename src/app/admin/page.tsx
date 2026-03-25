@@ -3,6 +3,7 @@
 import { useState } from "react";
 import StatsCards from "@/components/admin/StatsCards";
 import SyncButton from "@/components/admin/SyncButton";
+import LibrarySelector from "@/components/admin/LibrarySelector";
 import PruningTable from "@/components/admin/PruningTable";
 
 export default function AdminDashboard() {
@@ -16,7 +17,10 @@ export default function AdminDashboard() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Dashboard</h1>
-        <SyncButton onSyncComplete={handleSyncComplete} />
+        <div className="flex items-center gap-3">
+          <LibrarySelector />
+          <SyncButton onSyncComplete={handleSyncComplete} />
+        </div>
       </div>
 
       <StatsCards refreshKey={refreshKey} />

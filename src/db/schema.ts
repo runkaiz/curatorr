@@ -81,9 +81,17 @@ export const permanentItems = sqliteTable("permanent_items", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const syncSections = sqliteTable("sync_sections", {
+  key: text("key").primaryKey(), // Plex section ID
+  title: text("title").notNull(),
+  type: text("type").notNull(), // "movie" | "show"
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+});
+
 // Type exports
 export type LibraryItem = typeof libraryItems.$inferSelect;
 export type NewLibraryItem = typeof libraryItems.$inferInsert;
 export type WatchHistoryEntry = typeof watchHistory.$inferSelect;
 export type NewWatchHistoryEntry = typeof watchHistory.$inferInsert;
 export type PermanentItem = typeof permanentItems.$inferSelect;
+export type SyncSection = typeof syncSections.$inferSelect;

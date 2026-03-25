@@ -99,4 +99,14 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS library_items_pruning_score_idx ON library_items(pruning_score DESC);
 `);
 
+// Migration: add sync_sections table
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS sync_sections (
+    key TEXT PRIMARY KEY NOT NULL,
+    title TEXT NOT NULL,
+    type TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1 NOT NULL
+  );
+`);
+
 export const db = drizzle(sqlite, { schema });

@@ -60,6 +60,7 @@ export async function middleware(request: NextRequest) {
   if (
     pathname.startsWith("/api/sync") ||
     pathname.startsWith("/api/permanent") ||
+    pathname.startsWith("/api/sections") ||
     pathname.startsWith("/api/stats") ||
     pathname.startsWith("/api/pruning") ||
     pathname.startsWith("/api/auth/logout")
@@ -82,6 +83,7 @@ export const config = {
     "/admin/:path*",
     "/api/sync/:path*",
     "/api/permanent/:path*",
+    "/api/sections/:path*",
     "/api/stats/:path*",
     "/api/pruning/:path*",
     "/api/auth/logout/:path*",
