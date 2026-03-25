@@ -13,6 +13,7 @@ export async function syncLibrary(
   const startTime = Date.now();
   let itemsSynced = 0;
   let historyEntries = 0;
+  const knownItemIds = new Set<string>();
 
   onProgress?.("Fetching library sections from Plex...");
   const sections = await getLibrarySections();
@@ -41,6 +42,10 @@ export async function syncLibrary(
       mergeItem(plex, tautulliMap.get(plex.ratingKey))
     );
 
+    for (const item of mergedItems) {
+      knownItemIds.add(item.id);
+    }
+
     for (let i = 0; i < mergedItems.length; i += BATCH_SIZE) {
       const batch = mergedItems.slice(i, i + BATCH_SIZE);
       await upsertLibraryItems(batch);
@@ -64,6 +69,7 @@ export async function syncLibrary(
       db.transaction((tx) => {
         for (const entry of batch) {
           if (!entry.ratingKey || !entry.user || !entry.date) continue;
+          if (!knownItemIds.has(entry.ratingKey)) continue;
           tx.insert(watchHistory)
             .values({
               itemId: entry.ratingKey,
