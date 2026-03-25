@@ -6,6 +6,7 @@ import { useToast } from "@/components/shared/Toast";
 interface SyncResult {
   itemsSynced: number;
   historyEntries: number;
+  itemsRemoved: number;
   durationMs: number;
 }
 
@@ -31,8 +32,9 @@ export default function SyncButton({
         throw new Error(data.message || data.error || "Sync failed");
       }
       setResult(data);
+      const removedMsg = data.itemsRemoved > 0 ? `, removed ${data.itemsRemoved}` : "";
       toast(
-        `Synced ${data.itemsSynced} items and ${data.historyEntries} history entries`,
+        `Synced ${data.itemsSynced} items and ${data.historyEntries} history entries${removedMsg}`,
         "success"
       );
       onSyncComplete();
@@ -80,7 +82,7 @@ export default function SyncButton({
       {result && (
         <span className="text-sm text-green-400">
           Synced {result.itemsSynced} items, {result.historyEntries} history
-          entries in {(result.durationMs / 1000).toFixed(1)}s
+          entries{result.itemsRemoved > 0 && `, removed ${result.itemsRemoved}`} in {(result.durationMs / 1000).toFixed(1)}s
         </span>
       )}
 

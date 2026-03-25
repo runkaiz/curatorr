@@ -50,5 +50,6 @@ export interface TautulliUser {
 export interface SyncResult {
   itemsSynced: number;
   historyEntries: number;
+  itemsRemoved: number;
   durationMs: number;
 }

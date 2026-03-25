@@ -100,10 +100,36 @@ export async function syncLibrary(
     }
   }
 
-  const durationMs = Date.now() - startTime;
-  onProgress?.(`Sync complete: ${itemsSynced} items, ${historyEntries} history entries in ${(durationMs / 1000).toFixed(1)}s`);
+  // Remove items from DB that no longer exist in Plex
+  let itemsRemoved = 0;
+  if (knownItemIds.size > 0) {
+    onProgress?.("Removing items no longer in Plex...");
+    // Fetch all existing IDs from the database and diff against known
+    const existingRows = db
+      .select({ id: libraryItems.id })
+      .from(libraryItems)
+      .all();
+    const idsToRemove = existingRows
+      .map((row) => row.id)
+      .filter((id) => !knownItemIds.has(id));
 
-  return { itemsSynced, historyEntries, durationMs };
+    for (let i = 0; i < idsToRemove.length; i += BATCH_SIZE) {
+      const batch = idsToRemove.slice(i, i + BATCH_SIZE);
+      db.delete(libraryItems)
+        .where(sql`${libraryItems.id} IN (${sql.join(batch.map((id) => sql`${id}`), sql`, `)})`)
+        .run();
+      itemsRemoved += batch.length;
+    }
+
+    if (itemsRemoved > 0) {
+      onProgress?.(`Removed ${itemsRemoved} items no longer in Plex`);
+    }
+  }
+
+  const durationMs = Date.now() - startTime;
+  onProgress?.(`Sync complete: ${itemsSynced} items, ${historyEntries} history entries, ${itemsRemoved} removed in ${(durationMs / 1000).toFixed(1)}s`);
+
+  return { itemsSynced, historyEntries, itemsRemoved, durationMs };
 }
 
 interface MergedLibraryItem {
