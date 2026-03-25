@@ -11,8 +11,10 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get("type");
     const genre = searchParams.get("genre");
     const decade = searchParams.get("decade");
+    const search = searchParams.get("q")?.trim() || "";
     const filter = searchParams.get("filter");
     const hidePermanent = searchParams.get("hide_permanent") === "true";
+    const permanentOnly = searchParams.get("permanent_only") === "true";
     const sort = searchParams.get("sort") || "added_at";
     const order = searchParams.get("order") || "desc";
     const page = parseInt(searchParams.get("page") || "1", 10);
@@ -24,7 +26,7 @@ export async function GET(request: NextRequest) {
 
     // If using a pre-built filter, use a specialized query
     if (filter) {
-      return handleFilteredQuery(filter, hidePermanent, sort, order, page, limit, offset);
+      return handleFilteredQuery(filter, hidePermanent, search, sort, order, page, limit, offset);
     }
 
     // Build where conditions
@@ -46,7 +48,13 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (hidePermanent) {
+    if (search) {
+      conditions.push(like(libraryItems.title, `%${search}%`));
+    }
+
+    if (permanentOnly) {
+      conditions.push(sql`${permanentItems.itemId} IS NOT NULL`);
+    } else if (hidePermanent) {
       conditions.push(sql`${permanentItems.itemId} IS NULL`);
     }
 
@@ -74,6 +82,7 @@ export async function GET(request: NextRequest) {
         episodeCount: libraryItems.episodeCount,
         filePath: libraryItems.filePath,
         pruningScore: libraryItems.pruningScore,
+        deletedFromSource: libraryItems.deletedFromSource,
         isPermanent: sql<boolean>`${permanentItems.itemId} IS NOT NULL`.as(
           "is_permanent"
         ),
@@ -132,6 +141,7 @@ export async function GET(request: NextRequest) {
 function handleFilteredQuery(
   filter: string,
   hidePermanent: boolean,
+  search: string,
   sort: string,
   order: string,
   page: number,
@@ -141,6 +151,10 @@ function handleFilteredQuery(
   const permanentCondition = hidePermanent
     ? sql`AND p.item_id IS NULL`
     : sql``;
+  const escapedSearch = search.replace(/'/g, "''");
+  const searchCondition = search
+    ? `AND li.title LIKE '%${escapedSearch}%'`
+    : "";
 
   let filterSql: string;
   const sortClause = getFilterSortClause(sort, order, filter);
@@ -152,6 +166,7 @@ function handleFilteredQuery(
         FROM library_items li
         LEFT JOIN permanent_items p ON li.id = p.item_id
         WHERE li.pruning_score >= 70 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ${searchCondition}
         ORDER BY li.pruning_score DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
@@ -163,6 +178,7 @@ function handleFilteredQuery(
         FROM library_items li
         LEFT JOIN permanent_items p ON li.id = p.item_id
         WHERE li.play_count = 0 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ${searchCondition}
         ${sortClause}
         LIMIT ${limit} OFFSET ${offset}
       `;
@@ -176,6 +192,7 @@ function handleFilteredQuery(
         LEFT JOIN permanent_items p ON li.id = p.item_id
         WHERE li.play_count = 1 AND li.last_viewed_at < ${oneYearAgo}
         ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ${searchCondition}
         ${sortClause}
         LIMIT ${limit} OFFSET ${offset}
       `;
@@ -188,6 +205,7 @@ function handleFilteredQuery(
         FROM library_items li
         LEFT JOIN permanent_items p ON li.id = p.item_id
         WHERE 1=1 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ${searchCondition}
         ORDER BY li.file_size_bytes DESC
         LIMIT ${limit} OFFSET ${offset}
       `;
@@ -200,6 +218,7 @@ function handleFilteredQuery(
         LEFT JOIN permanent_items p ON li.id = p.item_id
         WHERE li.resolution IN ('SD', '480p', '720p', 'sd', '480', '720')
         ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ${searchCondition}
         ${sortClause}
         LIMIT ${limit} OFFSET ${offset}
       `;
@@ -218,6 +237,7 @@ function handleFilteredQuery(
         ) wh ON li.id = wh.item_id
         WHERE wh.max_pct < 50 AND wh.any_completed = 0
         ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ${searchCondition}
         ${sortClause}
         LIMIT ${limit} OFFSET ${offset}
       `;
@@ -234,14 +254,14 @@ function handleFilteredQuery(
           GROUP BY item_id
           HAVING COUNT(DISTINCT user) = 1
         ) wh ON li.id = wh.item_id
-        ${hidePermanent ? "WHERE p.item_id IS NULL" : ""}
+        WHERE 1=1 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ${searchCondition}
         ${sortClause}
         LIMIT ${limit} OFFSET ${offset}
       `;
       break;
 
     case "not_owner":
-      // Items where the first/admin user hasn't watched but others have
       filterSql = `
         SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
         FROM library_items li
@@ -254,6 +274,7 @@ function handleFilteredQuery(
           WHERE user = (SELECT user FROM watch_history GROUP BY user ORDER BY COUNT(*) DESC LIMIT 1)
         )
         ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ${searchCondition}
         ${sortClause}
         LIMIT ${limit} OFFSET ${offset}
       `;
@@ -270,7 +291,8 @@ function handleFilteredQuery(
           GROUP BY item_id
           HAVING MIN(was_completed) = 1 AND COUNT(DISTINCT user) > 0
         ) wh ON li.id = wh.item_id
-        ${hidePermanent ? "WHERE p.item_id IS NULL" : ""}
+        WHERE 1=1 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
+        ${searchCondition}
         ${sortClause}
         LIMIT ${limit} OFFSET ${offset}
       `;
@@ -310,6 +332,7 @@ function handleFilteredQuery(
     episodeCount: row.episode_count,
     filePath: row.file_path,
     pruningScore: row.pruning_score ?? null,
+    deletedFromSource: row.deleted_from_source ?? null,
     isPermanent: !!row.is_permanent,
   }));
 

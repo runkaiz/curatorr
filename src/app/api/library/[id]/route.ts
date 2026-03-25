@@ -24,6 +24,7 @@ export async function GET(
         bitrate: libraryItems.bitrate,
         episodeCount: libraryItems.episodeCount,
         filePath: libraryItems.filePath,
+        deletedFromSource: libraryItems.deletedFromSource,
         isPermanent: sql<boolean>`${permanentItems.itemId} IS NOT NULL`.as(
           "is_permanent"
         ),

@@ -7,7 +7,7 @@ export default function Home() {
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
         <div className="mx-auto flex h-14 max-w-screen-2xl items-center justify-between px-4">
-          <h1 className="text-lg font-semibold tracking-tight">The Curator</h1>
+          <h1 className="text-lg font-semibold tracking-tight">Curatorr</h1>
           <div className="flex items-center gap-2">
             <ThemeToggle />
             <Link

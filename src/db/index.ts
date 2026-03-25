@@ -37,7 +37,8 @@ sqlite.exec(`
     file_path TEXT,
     thumb_url TEXT,
     updated_at INTEGER,
-    pruning_score INTEGER
+    pruning_score INTEGER,
+    deleted_from_source INTEGER
   );
 
   CREATE TABLE IF NOT EXISTS watch_history (
@@ -83,6 +84,13 @@ sqlite.exec(`
 // Migration: add pruning_score column to existing databases
 try {
   sqlite.exec(`ALTER TABLE library_items ADD COLUMN pruning_score INTEGER`);
+} catch {
+  // Column already exists, ignore
+}
+
+// Migration: add deleted_from_source column to existing databases
+try {
+  sqlite.exec(`ALTER TABLE library_items ADD COLUMN deleted_from_source INTEGER`);
 } catch {
   // Column already exists, ignore
 }

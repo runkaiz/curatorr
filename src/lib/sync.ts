@@ -1,9 +1,9 @@
 import { db } from "@/db";
-import { libraryItems, watchHistory } from "@/db/schema";
+import { libraryItems, permanentItems, watchHistory } from "@/db/schema";
 import { getLibrarySections, getLibraryItems } from "./plex";
 import { getLibraryMediaInfo, getHistory } from "./tautulli";
 import type { SyncResult, PlexMediaItem, TautulliMediaItem } from "./types";
-import { sql } from "drizzle-orm";
+import { eq, sql, isNotNull } from "drizzle-orm";
 import { computeAllPruningScores } from "./pruning";
 
 const BATCH_SIZE = 500;
@@ -102,9 +102,12 @@ export async function syncLibrary(
   }
 
   // Remove items from DB that no longer exist in Plex
+  // Permanent items are preserved and flagged instead of deleted
   let itemsRemoved = 0;
+  let permanentMissing = 0;
   if (knownItemIds.size > 0) {
     onProgress?.("Removing items no longer in Plex...");
+
     // Fetch all existing IDs from the database and diff against known
     const existingRows = db
       .select({ id: libraryItems.id })
@@ -114,12 +117,44 @@ export async function syncLibrary(
       .map((row) => row.id)
       .filter((id) => !knownItemIds.has(id));
 
-    for (let i = 0; i < idsToRemove.length; i += BATCH_SIZE) {
-      const batch = idsToRemove.slice(i, i + BATCH_SIZE);
+    // Find which items to remove are permanent
+    const permanentSet = new Set(
+      db
+        .select({ itemId: permanentItems.itemId })
+        .from(permanentItems)
+        .all()
+        .map((row) => row.itemId)
+    );
+
+    const deletableIds = idsToRemove.filter((id) => !permanentSet.has(id));
+    const protectedIds = idsToRemove.filter((id) => permanentSet.has(id));
+
+    // Delete non-permanent items
+    for (let i = 0; i < deletableIds.length; i += BATCH_SIZE) {
+      const batch = deletableIds.slice(i, i + BATCH_SIZE);
       db.delete(libraryItems)
         .where(sql`${libraryItems.id} IN (${sql.join(batch.map((id) => sql`${id}`), sql`, `)})`)
         .run();
       itemsRemoved += batch.length;
+    }
+
+    // Clear deletedFromSource flag for any previously-flagged items still in Plex
+    db.update(libraryItems)
+      .set({ deletedFromSource: null })
+      .where(isNotNull(libraryItems.deletedFromSource))
+      .run();
+
+    // Flag permanent items as deleted from source
+    if (protectedIds.length > 0) {
+      const now = Math.floor(Date.now() / 1000);
+      for (const id of protectedIds) {
+        db.update(libraryItems)
+          .set({ deletedFromSource: now })
+          .where(eq(libraryItems.id, id))
+          .run();
+      }
+      permanentMissing = protectedIds.length;
+      onProgress?.(`Warning: ${permanentMissing} permanent item(s) no longer found in Plex`);
     }
 
     if (itemsRemoved > 0) {
@@ -208,6 +243,7 @@ function upsertLibraryItems(items: MergedLibraryItem[]): void {
             filePath: sql`excluded.file_path`,
             thumbUrl: sql`excluded.thumb_url`,
             updatedAt: sql`excluded.updated_at`,
+            deletedFromSource: sql`NULL`,
           },
         })
         .run();

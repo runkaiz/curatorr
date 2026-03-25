@@ -16,19 +16,46 @@ const filters = [
 interface AdminFilterBarProps {
   activeFilter: string;
   hidePermanent: boolean;
+  search: string;
   onFilterChange: (filter: string) => void;
   onHidePermanentChange: (hide: boolean) => void;
+  onSearchChange: (query: string) => void;
 }
 
 export default function AdminFilterBar({
   activeFilter,
   hidePermanent,
+  search,
   onFilterChange,
   onHidePermanentChange,
+  onSearchChange,
 }: AdminFilterBarProps) {
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="relative">
+          <svg
+            className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            />
+          </svg>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="Search titles..."
+            className="w-48 rounded-md border border-slate-600 bg-slate-800 py-1.5 pl-8 pr-2 text-xs text-slate-200 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
+          />
+        </div>
+        <div className="mx-1 h-5 w-px bg-slate-700" />
         {filters.map((f) => (
           <button
             key={f.value}

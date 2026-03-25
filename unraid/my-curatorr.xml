@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <Container version="2">
-  <Name>the-curator</Name>
+  <Name>curatorr</Name>
   <Repository>ghcr.io/runkaiz/curatorr:latest</Repository>
   <Registry>https://ghcr.io/runkaiz/curatorr</Registry>
   <Branch>
@@ -21,7 +21,7 @@
   <DonateLink/>
   <Requires>Plex Media Server and Tautulli running on the same server.</Requires>
   <Config Name="Web UI Port" Target="3000" Default="3000" Mode="tcp" Description="Port for the web interface." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
-  <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/the-curator" Mode="rw" Description="Database and persistent storage." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/the-curator</Config>
+  <Config Name="App Data" Target="/data" Default="/mnt/user/appdata/curatorr" Mode="rw" Description="Database and persistent storage." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/curatorr</Config>
   <Config Name="Database Path" Target="DATABASE_URL" Default="/data/curator.db" Description="Path to SQLite database inside the container." Type="Variable" Display="advanced" Required="true" Mask="false">/data/curator.db</Config>
   <Config Name="Plex URL" Target="PLEX_URL" Default="http://172.17.0.1:32400" Description="URL of your Plex server. Use 172.17.0.1 for host access from bridge network, or the container name if using a custom network." Type="Variable" Display="always" Required="true" Mask="false">http://172.17.0.1:32400</Config>
   <Config Name="Plex Token" Target="PLEX_TOKEN" Default="" Description="Your Plex authentication token. Find it in Plex Web: open any item → Get Info → View XML → look for X-Plex-Token in the URL." Type="Variable" Display="always" Required="true" Mask="true"></Config>

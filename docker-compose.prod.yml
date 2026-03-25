@@ -1,11 +1,11 @@
 services:
   curator:
     image: ghcr.io/runkaiz/curatorr:latest
-    container_name: the-curator
+    container_name: curatorr
     ports:
       - "3000:3000"
     volumes:
-      - /mnt/user/appdata/the-curator/data:/data
+      - /mnt/user/appdata/curatorr/data:/data
     environment:
       - DATABASE_URL=/data/curator.db
       - PLEX_URL=${PLEX_URL}

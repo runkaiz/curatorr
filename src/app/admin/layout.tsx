@@ -37,7 +37,7 @@ export default function AdminLayout({
               href="/admin"
               className="text-lg font-semibold tracking-tight"
             >
-              The Curator
+              Curatorr
             </Link>
             <div className="flex gap-1">
               {navLinks.map((link) => (

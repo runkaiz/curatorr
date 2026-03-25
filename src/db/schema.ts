@@ -27,6 +27,7 @@ export const libraryItems = sqliteTable(
     thumbUrl: text("thumb_url"),
     updatedAt: integer("updated_at"),
     pruningScore: integer("pruning_score"),
+    deletedFromSource: integer("deleted_from_source"), // timestamp when item was removed from Plex
   },
   (table) => ({
     typeIdx: index("library_items_type_idx").on(table.type),

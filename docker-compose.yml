@@ -1,7 +1,7 @@
 services:
   curator:
     build: .
-    container_name: the-curator
+    container_name: curatorr
     ports:
       - "3000:3000"
     volumes:

@@ -37,7 +37,7 @@ export default function LoginPage() {
     <main className="flex min-h-screen items-center justify-center bg-slate-950">
       <div className="w-full max-w-sm px-6">
         <h1 className="mb-8 text-center text-2xl font-bold text-slate-100">
-          The Curator
+          Curatorr
         </h1>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

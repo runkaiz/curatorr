@@ -24,6 +24,7 @@ interface LibraryItem {
   filePath: string | null;
   pruningScore: number | null;
   isPermanent: boolean;
+  deletedFromSource: number | null;
 }
 
 interface SortState {
@@ -44,10 +45,18 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
 
   const [activeFilter, setActiveFilter] = useState("");
   const [hidePermanent, setHidePermanent] = useState(true);
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [sortState, setSortState] = useState<SortState>({
     column: "score",
     direction: "desc",
   });
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
@@ -61,6 +70,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
       const params = new URLSearchParams();
       if (activeFilter) params.set("filter", activeFilter);
       if (hidePermanent) params.set("hide_permanent", "true");
+      if (debouncedSearch) params.set("q", debouncedSearch);
       params.set("sort", sortState.column);
       params.set("order", sortState.direction);
       params.set("page", String(page));
@@ -90,7 +100,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
     } finally {
       setLoading(false);
     }
-  }, [activeFilter, hidePermanent, sortState, page, refreshKey, toast]);
+  }, [activeFilter, hidePermanent, debouncedSearch, sortState, page, refreshKey, toast]);
 
   useEffect(() => {
     fetchItems();
@@ -100,7 +110,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
   useEffect(() => {
     setPage(1);
     setSelected(new Set());
-  }, [activeFilter, hidePermanent, sortState]);
+  }, [activeFilter, hidePermanent, debouncedSearch, sortState]);
 
   function handleSort(column: string) {
     setSortState((prev) => ({
@@ -187,8 +197,10 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
       <AdminFilterBar
         activeFilter={activeFilter}
         hidePermanent={hidePermanent}
+        search={search}
         onFilterChange={setActiveFilter}
         onHidePermanentChange={setHidePermanent}
+        onSearchChange={setSearch}
       />
 
       <div className="overflow-x-auto rounded-lg border border-slate-700">
@@ -261,7 +273,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
                 key={item.id}
                 className={`transition-colors hover:bg-slate-800/50 ${
                   selected.has(item.id) ? "bg-blue-900/20" : ""
-                } ${item.isPermanent ? "border-l-2 border-l-amber-400" : ""}`}
+                } ${item.deletedFromSource ? "border-l-2 border-l-red-500 bg-red-900/10" : item.isPermanent ? "border-l-2 border-l-amber-400" : ""}`}
               >
                 <td className="px-3 py-2">
                   <input
@@ -300,14 +312,24 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
                   {item.addedAt ? formatRelativeDate(item.addedAt) : "—"}
                 </td>
                 <td className="px-3 py-2">
-                  {item.isPermanent && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-xs font-medium text-amber-400">
-                      <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
-                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                      </svg>
-                      Permanent
-                    </span>
-                  )}
+                  <div className="flex flex-col gap-1">
+                    {item.isPermanent && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-xs font-medium text-amber-400">
+                        <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                        </svg>
+                        Permanent
+                      </span>
+                    )}
+                    {item.deletedFromSource && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-400">
+                        <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        Removed from Plex
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td
                   className="max-w-[150px] truncate px-3 py-2 font-mono text-xs text-slate-500"
