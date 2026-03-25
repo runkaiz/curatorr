@@ -21,11 +21,13 @@ export async function GET() {
     "DATABASE_URL",
   ];
 
+  const httpUrlVars = ["PLEX_URL", "TAUTULLI_URL"];
+
   for (const name of envVars) {
     const value = process.env[name];
     if (!value) {
       checks[name] = { status: "error", message: "Not set" };
-    } else if (name.endsWith("_URL")) {
+    } else if (httpUrlVars.includes(name)) {
       try {
         new URL(value);
         checks[name] = { status: "ok", message: maskUrl(value) };
@@ -35,6 +37,8 @@ export async function GET() {
           message: `Invalid URL: "${value}" — must start with http:// or https://`,
         };
       }
+    } else if (name === "DATABASE_URL") {
+      checks[name] = { status: "ok", message: value };
     } else {
       checks[name] = { status: "ok", message: `Set (${value.length} chars)` };
     }
