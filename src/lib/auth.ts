@@ -53,7 +53,7 @@ export function createSession(): string {
 export function createSessionCookie(token: string): string {
   return serialize(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.SECURE_COOKIES === "true",
     sameSite: "lax",
     path: "/",
     maxAge: MAX_AGE,
@@ -63,7 +63,7 @@ export function createSessionCookie(token: string): string {
 export function clearSessionCookie(): string {
   return serialize(COOKIE_NAME, "", {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.SECURE_COOKIES === "true",
     sameSite: "lax",
     path: "/",
     maxAge: 0,

@@ -29,4 +29,5 @@
   <Config Name="Tautulli API Key" Target="TAUTULLI_API_KEY" Default="" Description="Your Tautulli API key. Find it in Tautulli: Settings → Web Interface → API Key." Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Admin Password" Target="ADMIN_PASSWORD" Default="" Description="Password for the admin dashboard at /login." Type="Variable" Display="always" Required="true" Mask="true"/>
   <Config Name="Session Secret" Target="SESSION_SECRET" Default="" Description="Random string for signing session cookies. Generate with: openssl rand -hex 32" Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Secure Cookies" Target="SECURE_COOKIES" Default="false" Description="Set to true only if accessing via HTTPS (e.g. reverse proxy with SSL). Leave false for plain HTTP LAN access." Type="Variable" Display="advanced" Required="false" Mask="false">false</Config>
 </Container>

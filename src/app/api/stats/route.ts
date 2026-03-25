@@ -12,8 +12,8 @@ export async function GET() {
       .select({
         totalSize: sql<number>`coalesce(sum(${libraryItems.fileSizeBytes}), 0)`,
         totalItems: sql<number>`count(*)`,
-        movieCount: sql<number>`sum(case when ${libraryItems.type} = 'movie' then 1 else 0 end)`,
-        showCount: sql<number>`sum(case when ${libraryItems.type} = 'show' then 1 else 0 end)`,
+        movieCount: sql<number>`coalesce(sum(case when ${libraryItems.type} = 'movie' then 1 else 0 end), 0)`,
+        showCount: sql<number>`coalesce(sum(case when ${libraryItems.type} = 'show' then 1 else 0 end), 0)`,
       })
       .from(libraryItems)
       .all();

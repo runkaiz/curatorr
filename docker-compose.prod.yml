@@ -14,4 +14,5 @@ services:
       - TAUTULLI_API_KEY=${TAUTULLI_API_KEY}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       - SESSION_SECRET=${SESSION_SECRET}
+      - SECURE_COOKIES=${SECURE_COOKIES:-false}
     restart: unless-stopped
