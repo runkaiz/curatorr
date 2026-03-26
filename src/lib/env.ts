@@ -32,4 +32,10 @@ export const env = {
   get DATABASE_URL() {
     return optionalEnv("DATABASE_URL");
   },
+  get SEERR_URL() {
+    return optionalEnv("SEERR_URL");
+  },
+  get SEERR_API_KEY() {
+    return optionalEnv("SEERR_API_KEY");
+  },
 };

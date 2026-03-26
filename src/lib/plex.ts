@@ -216,3 +216,39 @@ export async function getItemMetadata(ratingKey: string): Promise<PlexMediaItem 
     return null;
   }
 }
+
+/**
+ * Fetch the TMDB ID for a Plex item by reading its external Guid list.
+ * Plex stores GUIDs like: [{ id: "tmdb://12345" }, { id: "imdb://tt000" }]
+ */
+export async function getTmdbId(ratingKey: string): Promise<number | null> {
+  try {
+    const data = await plexFetch(`/library/metadata/${ratingKey}`) as Record<string, unknown>;
+    const container =
+      (data as Record<string, unknown>).MediaContainer || data;
+    const items = ensureArray(
+      (container as Record<string, unknown>).Metadata ||
+      (container as Record<string, unknown>).Video
+    ) as Record<string, unknown>[];
+    if (items.length === 0) return null;
+
+    const item = items[0];
+
+    // Check the Guid array for tmdb:// entries
+    const guids = ensureArray(item.Guid as Record<string, unknown>[] | Record<string, unknown>);
+    for (const guid of guids) {
+      const id = String((guid as Record<string, unknown>).id || guid);
+      const match = id.match(/^tmdb:\/\/(\d+)$/);
+      if (match) return parseInt(match[1], 10);
+    }
+
+    // Fallback: check the top-level guid field (older Plex agents use e.g. "com.plexapp.agents.themoviedb://12345")
+    const topGuid = String(item.guid || "");
+    const legacyMatch = topGuid.match(/themoviedb:\/\/(\d+)/);
+    if (legacyMatch) return parseInt(legacyMatch[1], 10);
+
+    return null;
+  } catch {
+    return null;
+  }
+}

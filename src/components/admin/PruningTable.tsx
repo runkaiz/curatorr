@@ -43,6 +43,10 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
 
+  const [seerrConfigured, setSeerrConfigured] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   const [activeFilter, setActiveFilter] = useState("");
   const [hidePermanent, setHidePermanent] = useState(true);
   const [search, setSearch] = useState("");
@@ -51,6 +55,14 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
     column: "score",
     direction: "desc",
   });
+
+  // Check if Seerr is configured
+  useEffect(() => {
+    fetch("/api/seerr/status")
+      .then((r) => r.json())
+      .then((data) => setSeerrConfigured(data.configured === true))
+      .catch(() => setSeerrConfigured(false));
+  }, []);
 
   // Debounce search input
   useEffect(() => {
@@ -168,6 +180,54 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
       fetchItems();
     } catch (err) {
       toast("Failed to mark items as permanent", "error");
+    }
+  }
+
+  async function handleDelete() {
+    setShowDeleteConfirm(false);
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(selected) }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Server error (${res.status})`);
+      }
+      const data = await res.json();
+      if (data.failed > 0) {
+        const failedItems = data.results
+          .filter((r: { success: boolean }) => !r.success)
+          .map((r: { title: string; error?: string }) => r.title)
+          .join(", ");
+        toast(
+          `Deleted ${data.succeeded}, failed ${data.failed}: ${failedItems}`,
+          "error"
+        );
+      } else {
+        const warnings = data.results.filter(
+          (r: { error?: string }) => r.error
+        );
+        if (warnings.length > 0) {
+          toast(
+            `Deleted ${data.succeeded} item(s) (${warnings.length} with warnings)`,
+            "info"
+          );
+        } else {
+          toast(`Deleted ${data.succeeded} item(s)`, "success");
+        }
+      }
+      setSelected(new Set());
+      fetchItems();
+    } catch (err) {
+      toast(
+        err instanceof Error ? err.message : "Failed to delete items",
+        "error"
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -373,8 +433,81 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
         selectedCount={selected.size}
         reclaimBytes={reclaimBytes}
         onMarkPermanent={handleMarkPermanent}
+        onDelete={() => setShowDeleteConfirm(true)}
         onClearSelection={() => setSelected(new Set())}
+        seerrConfigured={seerrConfigured}
+        deleting={deleting}
       />
+
+      {showDeleteConfirm && (
+        <DeleteConfirmDialog
+          count={selected.size}
+          reclaimBytes={reclaimBytes}
+          onConfirm={handleDelete}
+          onCancel={() => setShowDeleteConfirm(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function DeleteConfirmDialog({
+  count,
+  reclaimBytes,
+  onConfirm,
+  onCancel,
+}: {
+  count: number;
+  reclaimBytes: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm">
+      <div className="mx-4 w-full max-w-md rounded-lg border border-red-500/30 bg-slate-900 p-6 shadow-xl">
+        <div className="mb-4 flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-red-500/20">
+            <svg
+              className="h-5 w-5 text-red-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
+            </svg>
+          </div>
+          <h3 className="text-lg font-semibold text-slate-100">
+            Delete {count} item{count !== 1 ? "s" : ""}?
+          </h3>
+        </div>
+        <p className="mb-2 text-sm text-slate-300">
+          This will permanently delete the selected media files from
+          Sonarr/Radarr via Seerr and remove the request records.
+        </p>
+        <p className="mb-6 text-sm font-medium text-red-400">
+          This action cannot be undone. You will reclaim{" "}
+          {formatFileSize(reclaimBytes)}.
+        </p>
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="rounded-md bg-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-600"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
+          >
+            Delete Permanently
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

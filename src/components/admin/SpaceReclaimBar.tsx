@@ -6,14 +6,20 @@ interface SpaceReclaimBarProps {
   selectedCount: number;
   reclaimBytes: number;
   onMarkPermanent: () => void;
+  onDelete?: () => void;
   onClearSelection: () => void;
+  seerrConfigured: boolean;
+  deleting?: boolean;
 }
 
 export default function SpaceReclaimBar({
   selectedCount,
   reclaimBytes,
   onMarkPermanent,
+  onDelete,
   onClearSelection,
+  seerrConfigured,
+  deleting,
 }: SpaceReclaimBarProps) {
   if (selectedCount === 0) return null;
 
@@ -28,6 +34,15 @@ export default function SpaceReclaimBar({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {seerrConfigured && onDelete && (
+            <button
+              onClick={onDelete}
+              disabled={deleting}
+              className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-50"
+            >
+              {deleting ? "Deleting…" : "Delete via Seerr"}
+            </button>
+          )}
           <button
             onClick={onMarkPermanent}
             className="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-amber-700"

@@ -63,6 +63,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/api/sections") ||
     pathname.startsWith("/api/stats") ||
     pathname.startsWith("/api/pruning") ||
+    pathname.startsWith("/api/delete") ||
+    pathname.startsWith("/api/seerr") ||
     pathname.startsWith("/api/auth/logout")
   ) {
     if (!isAuthenticated) {
@@ -86,6 +88,8 @@ export const config = {
     "/api/sections/:path*",
     "/api/stats/:path*",
     "/api/pruning/:path*",
+    "/api/delete/:path*",
+    "/api/seerr/:path*",
     "/api/auth/logout/:path*",
     "/login",
   ],
