@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { permanentItems, libraryItems } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { reconcilePermanentItem } from "@/lib/permanent-collection";
 
 export async function GET() {
   try {
@@ -70,7 +71,26 @@ export async function POST(request: NextRequest) {
       })
       .run();
 
-    return NextResponse.json({ success: true }, { status: 201 });
+    try {
+      const permanentCollection = await reconcilePermanentItem(itemId);
+      return NextResponse.json(
+        {
+          success: true,
+          permanentCollection,
+          warning:
+            permanentCollection.failed > 0 || permanentCollection.skipped > 0
+              ? permanentCollection.errors.join("; ")
+              : undefined,
+        },
+        { status: 201 }
+      );
+    } catch (error) {
+      const warning = `Saved in Curatorr, but Plex collection sync failed: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`;
+      console.error(warning);
+      return NextResponse.json({ success: true, warning }, { status: 201 });
+    }
   } catch (error) {
     console.error("Permanent item create error:", error);
     return NextResponse.json(

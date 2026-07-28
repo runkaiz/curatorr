@@ -22,6 +22,7 @@ sqlite.pragma("foreign_keys = ON");
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS library_items (
     id TEXT PRIMARY KEY NOT NULL,
+    plex_section_id TEXT,
     type TEXT NOT NULL,
     title TEXT NOT NULL,
     year INTEGER,
@@ -91,6 +92,13 @@ try {
 // Migration: add deleted_from_source column to existing databases
 try {
   sqlite.exec(`ALTER TABLE library_items ADD COLUMN deleted_from_source INTEGER`);
+} catch {
+  // Column already exists, ignore
+}
+
+// Migration: remember the Plex library section for collection write-back
+try {
+  sqlite.exec(`ALTER TABLE library_items ADD COLUMN plex_section_id TEXT`);
 } catch {
   // Column already exists, ignore
 }

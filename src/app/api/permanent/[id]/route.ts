@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { permanentItems } from "@/db/schema";
 import { eq } from "drizzle-orm";
+import { reconcilePermanentItem } from "@/lib/permanent-collection";
 
 export async function DELETE(
   _request: NextRequest,
@@ -20,7 +21,23 @@ export async function DELETE(
       );
     }
 
-    return NextResponse.json({ success: true });
+    try {
+      const permanentCollection = await reconcilePermanentItem(params.id);
+      return NextResponse.json({
+        success: true,
+        permanentCollection,
+        warning:
+          permanentCollection.failed > 0 || permanentCollection.skipped > 0
+            ? permanentCollection.errors.join("; ")
+            : undefined,
+      });
+    } catch (error) {
+      const warning = `Removed in Curatorr, but Plex collection sync failed: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`;
+      console.error(warning);
+      return NextResponse.json({ success: true, warning });
+    }
   } catch (error) {
     console.error("Permanent item delete error:", error);
     return NextResponse.json(

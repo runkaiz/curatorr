@@ -18,7 +18,11 @@ function getPlexToken(): string {
   return token;
 }
 
-async function plexFetch(path: string, params: Record<string, string> = {}): Promise<unknown> {
+async function plexFetch(
+  path: string,
+  params: Record<string, string> = {},
+  method: "GET" | "PUT" = "GET"
+): Promise<unknown> {
   const url = new URL(`${getPlexUrl()}${path}`);
   url.searchParams.set("X-Plex-Token", getPlexToken());
   for (const [key, value] of Object.entries(params)) {
@@ -28,6 +32,7 @@ async function plexFetch(path: string, params: Record<string, string> = {}): Pro
   let res: Response;
   try {
     res = await fetch(url.toString(), {
+      method,
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(30000),
     });
@@ -50,6 +55,7 @@ async function plexFetch(path: string, params: Record<string, string> = {}): Pro
 
   // Fall back to XML parsing
   const text = await res.text();
+  if (!text) return {};
   return parser.parse(text);
 }
 
@@ -128,7 +134,7 @@ export async function getLibraryItems(
     ) as Record<string, unknown>[];
 
     for (const item of rawItems) {
-      items.push(parseMediaItem(item, sectionType));
+      items.push(parseMediaItem(item, sectionType, sectionId));
     }
 
     start += PAGE_SIZE;
@@ -140,13 +146,25 @@ export async function getLibraryItems(
 
 function parseMediaItem(
   item: Record<string, unknown>,
-  sectionType: "movie" | "show"
+  sectionType: "movie" | "show",
+  sectionId?: string
 ): PlexMediaItem {
   // Extract genres
   const genreData = ensureArray(item.Genre as Record<string, unknown>[] | Record<string, unknown>);
   const genres = genreData.map((g) =>
     typeof g === "string" ? g : String((g as Record<string, unknown>).tag || g)
   );
+
+  const collectionData = ensureArray(
+    item.Collection as Record<string, unknown>[] | Record<string, unknown>
+  );
+  const collections = collectionData
+    .map((collection) =>
+      typeof collection === "string"
+        ? collection
+        : String((collection as Record<string, unknown>).tag || "")
+    )
+    .filter(Boolean);
 
   // Extract file info from Media → Part
   let fileSize = 0;
@@ -180,6 +198,9 @@ function parseMediaItem(
 
   return {
     ratingKey: String(item.ratingKey),
+    librarySectionId:
+      sectionId ||
+      (item.librarySectionID ? String(item.librarySectionID) : null),
     title: String(item.title),
     year: toInt(item.year) || null,
     rating: toFloat(item.rating),
@@ -187,6 +208,7 @@ function parseMediaItem(
     lastViewedAt: toInt(item.lastViewedAt) || null,
     viewCount: toInt(item.viewCount),
     genres,
+    collections,
     fileSize,
     resolution,
     bitrate,
@@ -215,6 +237,50 @@ export async function getItemMetadata(ratingKey: string): Promise<PlexMediaItem 
   } catch {
     return null;
   }
+}
+
+/**
+ * Add or remove one collection tag without disturbing an item's other
+ * collection memberships. This mirrors PlexAPI's EditTagsMixin semantics.
+ */
+export async function setItemCollectionMembership(
+  item: PlexMediaItem,
+  collectionName: string,
+  shouldInclude: boolean
+): Promise<void> {
+  if (!item.librarySectionId) {
+    throw new Error(`Plex library section is unknown for item ${item.ratingKey}`);
+  }
+
+  const params: Record<string, string> = {
+    id: item.ratingKey,
+    type: item.type === "movie" ? "1" : "2",
+    "collection.locked": "1",
+  };
+
+  if (shouldInclude) {
+    const collections = [...item.collections];
+    const normalizedName = collectionName.trim().toLowerCase();
+    if (
+      !collections.some(
+        (name) => name.trim().toLowerCase() === normalizedName
+      )
+    ) {
+      collections.push(collectionName);
+    }
+
+    collections.forEach((name, index) => {
+      params[`collection[${index}].tag.tag`] = name;
+    });
+  } else {
+    params["collection[].tag.tag-"] = collectionName;
+  }
+
+  await plexFetch(
+    `/library/sections/${encodeURIComponent(item.librarySectionId)}/all`,
+    params,
+    "PUT"
+  );
 }
 
 /**

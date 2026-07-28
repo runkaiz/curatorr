@@ -1,5 +1,32 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Plex permanent exhibition
+
+Curatorr can mirror its permanent items into a manual Plex collection. Enable
+write-back with:
+
+```env
+PLEX_PERMANENT_COLLECTION_SYNC=true
+PLEX_PERMANENT_COLLECTION_NAME=Permanent Exhibition
+```
+
+Marking or unmarking an item updates Plex immediately, and every library sync
+reconciles collection membership again. Other Plex collection tags are
+preserved. If Plex is unavailable, Curatorr remains the source of truth and the
+write is retried during the next sync.
+
+For an external scheduler, configure `MAINTENANCE_TOKEN` and periodically call:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $MAINTENANCE_TOKEN" \
+  http://curatorr:3000/api/maintenance/permanent-collection
+```
+
+The collection is created by Plex when the first permanent item receives the
+tag. Movie and TV libraries each hold their own same-named collection, which
+Plex presents as related collections.
+
 ## Getting Started
 
 First, run the development server:

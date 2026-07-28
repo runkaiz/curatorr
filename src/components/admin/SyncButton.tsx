@@ -8,6 +8,12 @@ interface SyncResult {
   historyEntries: number;
   itemsRemoved: number;
   durationMs: number;
+  permanentCollection?: {
+    enabled: boolean;
+    added: number;
+    removed: number;
+    failed: number;
+  };
 }
 
 export default function SyncButton({
@@ -33,9 +39,16 @@ export default function SyncButton({
       }
       setResult(data);
       const removedMsg = data.itemsRemoved > 0 ? `, removed ${data.itemsRemoved}` : "";
+      const collectionMsg = data.permanentCollection?.enabled
+        ? `; Plex exhibition +${data.permanentCollection.added}/-${data.permanentCollection.removed}${
+            data.permanentCollection.failed > 0
+              ? ` (${data.permanentCollection.failed} failed)`
+              : ""
+          }`
+        : "";
       toast(
-        `Synced ${data.itemsSynced} items and ${data.historyEntries} history entries${removedMsg}`,
-        "success"
+        `Synced ${data.itemsSynced} items and ${data.historyEntries} history entries${removedMsg}${collectionMsg}`,
+        data.permanentCollection?.failed > 0 ? "info" : "success"
       );
       onSyncComplete();
     } catch (err) {
@@ -83,6 +96,8 @@ export default function SyncButton({
         <span className="text-sm text-green-400">
           Synced {result.itemsSynced} items, {result.historyEntries} history
           entries{result.itemsRemoved > 0 && `, removed ${result.itemsRemoved}`} in {(result.durationMs / 1000).toFixed(1)}s
+          {result.permanentCollection?.enabled &&
+            ` · Plex exhibition +${result.permanentCollection.added}/-${result.permanentCollection.removed}`}
         </span>
       )}
 

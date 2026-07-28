@@ -2,9 +2,15 @@ import { db } from "@/db";
 import { libraryItems, permanentItems, watchHistory, syncSections } from "@/db/schema";
 import { getLibrarySections, getLibraryItems } from "./plex";
 import { getLibraryMediaInfo, getHistory } from "./tautulli";
-import type { SyncResult, PlexMediaItem, TautulliMediaItem } from "./types";
+import type {
+  PlexCollectionSyncResult,
+  PlexMediaItem,
+  SyncResult,
+  TautulliMediaItem,
+} from "./types";
 import { eq, sql, isNotNull } from "drizzle-orm";
 import { computeAllPruningScores } from "./pruning";
+import { reconcilePermanentCollection } from "./permanent-collection";
 
 const BATCH_SIZE = 500;
 
@@ -15,6 +21,7 @@ export async function syncLibrary(
   let itemsSynced = 0;
   let historyEntries = 0;
   const knownItemIds = new Set<string>();
+  const syncedPlexItems: PlexMediaItem[] = [];
 
   onProgress?.("Fetching library sections from Plex...");
   const allSections = await getLibrarySections();
@@ -42,6 +49,7 @@ export async function syncLibrary(
       getLibraryItems(section.key, section.type),
       getLibraryMediaInfo(section.key),
     ]);
+    syncedPlexItems.push(...plexItems);
 
     // Build lookup map from Tautulli data
     const tautulliMap = new Map<string, TautulliMediaItem>();
@@ -181,14 +189,38 @@ export async function syncLibrary(
   onProgress?.("Computing pruning scores...");
   computeAllPruningScores();
 
+  let permanentCollection: PlexCollectionSyncResult | undefined;
+  try {
+    onProgress?.("Reconciling the permanent exhibition in Plex...");
+    permanentCollection = await reconcilePermanentCollection(syncedPlexItems);
+    if (permanentCollection.enabled) {
+      onProgress?.(
+        `Permanent exhibition: ${permanentCollection.added} added, ${permanentCollection.removed} removed, ${permanentCollection.failed} failed`
+      );
+    }
+  } catch (error) {
+    onProgress?.(
+      `Warning: Plex permanent exhibition reconciliation failed: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
+  }
+
   const durationMs = Date.now() - startTime;
   onProgress?.(`Sync complete: ${itemsSynced} items, ${historyEntries} history entries, ${itemsRemoved} removed in ${(durationMs / 1000).toFixed(1)}s`);
 
-  return { itemsSynced, historyEntries, itemsRemoved, durationMs };
+  return {
+    itemsSynced,
+    historyEntries,
+    itemsRemoved,
+    durationMs,
+    permanentCollection,
+  };
 }
 
 interface MergedLibraryItem {
   id: string;
+  plexSectionId: string | null;
   type: string;
   title: string;
   year: number | null;
@@ -217,6 +249,7 @@ function mergeItem(
 
   return {
     id: plex.ratingKey,
+    plexSectionId: plex.librarySectionId,
     type: plex.type,
     title: plex.title,
     year: plex.year,
@@ -244,6 +277,7 @@ function upsertLibraryItems(items: MergedLibraryItem[]): void {
           target: libraryItems.id,
           set: {
             type: sql`excluded.type`,
+            plexSectionId: sql`excluded.plex_section_id`,
             title: sql`excluded.title`,
             year: sql`excluded.year`,
             genre: sql`excluded.genre`,

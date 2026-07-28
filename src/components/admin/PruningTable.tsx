@@ -171,8 +171,17 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
         )
       );
       const failed = results.filter((r) => !r.ok).length;
+      const payloads = await Promise.all(
+        results.map((response) => response.json().catch(() => ({})))
+      );
+      const warnings = payloads.filter((payload) => payload.warning).length;
       if (failed > 0) {
         toast(`${failed} item(s) failed to mark as permanent`, "error");
+      } else if (warnings > 0) {
+        toast(
+          `Marked ${selected.size} item(s) as permanent; ${warnings} Plex update(s) will retry on sync`,
+          "info"
+        );
       } else {
         toast(`Marked ${selected.size} item(s) as permanent`, "success");
       }

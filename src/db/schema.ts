@@ -11,6 +11,7 @@ export const libraryItems = sqliteTable(
   "library_items",
   {
     id: text("id").primaryKey(), // Plex ratingKey
+    plexSectionId: text("plex_section_id"), // Plex library section key
     type: text("type").notNull(), // "movie" | "show"
     title: text("title").notNull(),
     year: integer("year"),

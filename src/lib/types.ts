@@ -7,6 +7,7 @@ export interface PlexSection {
 
 export interface PlexMediaItem {
   ratingKey: string;
+  librarySectionId: string | null;
   title: string;
   year: number | null;
   rating: number | null;
@@ -14,6 +15,7 @@ export interface PlexMediaItem {
   lastViewedAt: number | null;
   viewCount: number;
   genres: string[];
+  collections: string[];
   fileSize: number;
   resolution: string | null;
   bitrate: number | null;
@@ -46,10 +48,23 @@ export interface TautulliUser {
   isAdmin: boolean;
 }
 
+export interface PlexCollectionSyncResult {
+  enabled: boolean;
+  collectionName: string;
+  scanned: number;
+  added: number;
+  removed: number;
+  unchanged: number;
+  skipped: number;
+  failed: number;
+  errors: string[];
+}
+
 // Sync result
 export interface SyncResult {
   itemsSynced: number;
   historyEntries: number;
   itemsRemoved: number;
   durationMs: number;
+  permanentCollection?: PlexCollectionSyncResult;
 }

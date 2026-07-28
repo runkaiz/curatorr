@@ -56,8 +56,14 @@ export default function PermanentPage() {
         method: "DELETE",
       });
       if (!res.ok) throw new Error("Failed to remove");
+      const data = await res.json().catch(() => ({}));
       setItems((prev) => prev.filter((i) => i.itemId !== itemId));
-      toast("Item removed from permanent collection", "success");
+      toast(
+        data.warning
+          ? "Removed in Curatorr; the Plex update will retry on sync"
+          : "Item removed from permanent collection",
+        data.warning ? "info" : "success"
+      );
     } catch (err) {
       toast("Failed to remove item", "error");
     }
