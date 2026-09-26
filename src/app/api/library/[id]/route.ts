@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
 import { libraryItems, permanentItems } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { ensurePruningScores } from "@/lib/pruning";
+import { parseRecommendation } from "@/lib/pruning-score";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    ensurePruningScores();
     const items = db
       .select({
         id: libraryItems.id,
@@ -25,6 +28,8 @@ export async function GET(
         episodeCount: libraryItems.episodeCount,
         filePath: libraryItems.filePath,
         deletedFromSource: libraryItems.deletedFromSource,
+        pruningScore: libraryItems.pruningScore,
+        pruningDetails: libraryItems.pruningDetails,
         isPermanent: sql<boolean>`${permanentItems.itemId} IS NOT NULL`.as(
           "is_permanent"
         ),
@@ -39,7 +44,8 @@ export async function GET(
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
-    return NextResponse.json(items[0]);
+    const { pruningDetails, ...item } = items[0];
+    return NextResponse.json({ ...item, isPermanent: !!item.isPermanent, recommendation: parseRecommendation(pruningDetails) });
   } catch (error) {
     console.error("Library item fetch error:", error);
     return NextResponse.json(

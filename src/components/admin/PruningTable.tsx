@@ -8,6 +8,7 @@ import {
 import AdminFilterBar from "./AdminFilterBar";
 import SpaceReclaimBar from "./SpaceReclaimBar";
 import { useToast } from "@/components/shared/Toast";
+import type { Recommendation } from "@/lib/pruning-score";
 
 interface LibraryItem {
   id: string;
@@ -24,6 +25,7 @@ interface LibraryItem {
   episodeCount: number | null;
   filePath: string | null;
   pruningScore: number | null;
+  recommendation: Recommendation | null;
   isPermanent: boolean;
   deletedFromSource: number | null;
 }
@@ -48,7 +50,9 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
   const [deleting, setDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const [activeFilter, setActiveFilter] = useState("");
+  const [activeFilter, setActiveFilter] = useState("high_score");
+  const [section, setSection] = useState("");
+  const [sections, setSections] = useState<{ key: string; title: string }[]>([]);
   const [hidePermanent, setHidePermanent] = useState(true);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -67,6 +71,11 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
 
   // Debounce search input
   useEffect(() => {
+    fetch("/api/library/sections").then((response) => response.json())
+      .then((data) => setSections(data.sections || [])).catch(() => setSections([]));
+  }, [refreshKey]);
+
+  useEffect(() => {
     const timer = setTimeout(() => setDebouncedSearch(search), 300);
     return () => clearTimeout(timer);
   }, [search]);
@@ -82,6 +91,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
     try {
       const params = new URLSearchParams();
       if (activeFilter) params.set("filter", activeFilter);
+      if (section) params.set("section", section);
       if (hidePermanent) params.set("hide_permanent", "true");
       if (debouncedSearch) params.set("q", debouncedSearch);
       params.set("sort", sortState.column);
@@ -113,7 +123,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
     } finally {
       setLoading(false);
     }
-  }, [activeFilter, hidePermanent, debouncedSearch, sortState, page, refreshKey, toast]);
+  }, [activeFilter, section, hidePermanent, debouncedSearch, sortState, page, refreshKey, toast]);
 
   useEffect(() => {
     fetchItems();
@@ -123,7 +133,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
   useEffect(() => {
     setPage(1);
     setSelected(new Set());
-  }, [activeFilter, hidePermanent, debouncedSearch, sortState]);
+  }, [activeFilter, section, hidePermanent, debouncedSearch, sortState]);
 
   function handleSort(column: string) {
     setSortState((prev) => ({
@@ -252,7 +262,8 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
   const columns = [
     { key: "score", label: "Score", sortable: true },
     { key: "title", label: "Title", sortable: true },
-    { key: "type", label: "Type", sortable: false },
+    { key: "type", label: "Library", sortable: false },
+    { key: "recommendation", label: "Recommendation", sortable: false },
     { key: "size", label: "Size", sortable: true },
     { key: "resolution", label: "Res", sortable: false },
     { key: "last_viewed", label: "Last Watched", sortable: true },
@@ -264,10 +275,18 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-slate-400">
+        Higher scores prioritize long-idle titles with little recorded use. New additions,
+        recent viewing, unfinished viewing, and permanent items are held back. Scores
+        are review priorities, not probabilities; deletion of a series removes the whole show.
+      </p>
       <AdminFilterBar
         activeFilter={activeFilter}
         hidePermanent={hidePermanent}
         search={search}
+        section={section}
+        sections={sections}
+        onSectionChange={setSection}
         onFilterChange={setActiveFilter}
         onHidePermanentChange={setHidePermanent}
         onSearchChange={setSearch}
@@ -306,7 +325,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
               items.length === 0 &&
               Array.from({ length: 10 }).map((_, i) => (
                 <tr key={i}>
-                  <td colSpan={11} className="px-3 py-3">
+                  <td colSpan={12} className="px-3 py-3">
                     <div className="h-4 animate-pulse rounded bg-slate-800" />
                   </td>
                 </tr>
@@ -314,7 +333,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
 
             {!loading && error && (
               <tr>
-                <td colSpan={11} className="px-3 py-10 text-center">
+                <td colSpan={12} className="px-3 py-10 text-center">
                   <p className="text-red-400">Failed to load items</p>
                   <p className="mt-1 text-xs text-slate-500">{error}</p>
                   <button
@@ -330,10 +349,12 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
             {!loading && !error && items.length === 0 && (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={12}
                   className="px-3 py-10 text-center text-slate-500"
                 >
-                  No items match this filter.
+                  {activeFilter === "high_score"
+                    ? "No deletion candidates with sufficient evidence. Sync your library or choose All to review protected titles and data gaps."
+                    : "No items match this filter."}
                 </td>
               </tr>
             )}
@@ -364,8 +385,11 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
                     {item.sectionTitle || (item.type === "show" ? "TV" : "Movies")}
                   </span>
                 </td>
+                <td className="min-w-[260px] max-w-sm px-3 py-2">
+                  <RecommendationDetails recommendation={item.recommendation} />
+                </td>
                 <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-300">
-                  {formatFileSize(item.fileSizeBytes)}
+                  {item.fileSizeBytes > 0 ? formatFileSize(item.fileSizeBytes) : "Unknown"}
                 </td>
                 <td className="px-3 py-2 text-xs text-slate-400">
                   {item.resolution || "—"}
@@ -373,7 +397,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
                 <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-400">
                   {item.lastViewedAt
                     ? formatRelativeDate(item.lastViewedAt)
-                    : <span className="text-red-400">Never</span>}
+                    : <span className="text-slate-500">No record</span>}
                 </td>
                 <td className="px-3 py-2 text-center text-xs text-slate-400">
                   {item.playCount}
@@ -528,9 +552,9 @@ function ScoreBadge({ score }: { score: number | null }) {
   }
 
   let colorClass: string;
-  if (score >= 76) {
+  if (score >= 70) {
     colorClass = "bg-red-500/20 text-red-400";
-  } else if (score >= 51) {
+  } else if (score >= 50) {
     colorClass = "bg-orange-500/20 text-orange-400";
   } else if (score >= 26) {
     colorClass = "bg-yellow-500/20 text-yellow-400";
@@ -544,5 +568,28 @@ function ScoreBadge({ score }: { score: number | null }) {
     >
       {score}
     </span>
+  );
+}
+
+function RecommendationDetails({ recommendation }: { recommendation: Recommendation | null }) {
+  if (!recommendation) return <span className="text-xs text-slate-500">Sync to calculate a recommendation.</span>;
+  const labels = {
+    candidate: "Candidate for review",
+    review: "Lower priority",
+    protected: "Keep / resolve first",
+    insufficient_data: "More data needed",
+    unavailable: "Missing from Plex",
+  };
+  return (
+    <details className="text-xs text-slate-400">
+      <summary className="cursor-pointer text-slate-200">
+        {labels[recommendation.decision]}
+        <span className="mt-1 block text-slate-400">{recommendation.reasons[0]}</span>
+      </summary>
+      <ul className="mt-2 list-disc space-y-1 pl-4">
+        {recommendation.reasons.slice(1).map((reason) => <li key={reason}>{reason}</li>)}
+        {recommendation.cautions.map((reason) => <li key={reason} className="text-amber-300">{reason}</li>)}
+      </ul>
+    </details>
   );
 }

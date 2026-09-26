@@ -34,6 +34,54 @@ The public catalog filters by library name, so TV and Anime remain separate
 even though Plex classifies both as shows. New libraries are enabled on the
 next sync; the admin Libraries menu can disable any library explicitly.
 
+Moving a permanent title between libraries can change its Plex ID. Sync now
+retains Plex/TVDB/TMDB identifiers and reconnects the permanent marker, note,
+and watch history before removing stale records or updating Plex collections.
+For records created by older versions, it can recover a unique exact
+title/type/year match and reports that fallback in the sync notes. Ambiguous
+matches retain the old record and protect possible destinations from deletion
+and Plex collection changes until reviewed.
+
+## Deletion recommendations
+
+The balanced scoring policy favors long-idle titles with little recorded use.
+The admin dashboard opens on **Deletion Candidates** and explains each score.
+The score is a review priority, not a probability that deletion is safe.
+
+- New titles and newly added episodes get a 60-day grace period. Viewing in
+  the last 30 days holds a title back. Recorded unfinished viewing by any
+  user also holds it back, including partially watched series.
+- Candidates must be idle for at least 180 days. Missing size, age, episode
+  count, detailed viewing history, or a sync older than 7 days limits the score.
+  Titles with no recorded plays need at least 180 days of library history;
+  this does not establish that they have never been watched.
+- Size is ranked within the Plex library. Episode plays are normalized by
+  episode count, while repeat viewing and multiple viewers reduce priority.
+  Resolution and critic ratings are not deletion penalties.
+- The score combines inactivity (55 points), low use (25), library-relative
+  size (15), and age (5), then applies repeat/viewer deductions and protections.
+  A score of 70 or above is a candidate only when the evidence checks pass.
+- Scores refresh after sync and at most hourly when the catalog is read.
+  Permanent or library-selection changes invalidate the cached scores.
+  The space estimate counts only current candidates. Nothing is deleted
+  automatically.
+
+Watch history follows the [Tautulli API](https://github.com/Tautulli/Tautulli/wiki/Tautulli-API-Reference#get_history):
+episode events attach to their parent show; season/episode identity survives
+library moves; resumed sessions are grouped; and all history pages are read
+instead of silently stopping at 10,000 records. Completing one episode does
+not mark a series as fully watched. The **Completed Movies** filter is limited
+to movies. Tautulli only knows recorded viewing, and this policy cannot infer
+future interest or whether a currently available series has finished airing.
+
+After upgrading, run **Sync Now** to recover moved permanent items and populate
+the corrected history and new-episode data. Existing databases are migrated
+without discarding permanent notes. Old scores are replaced conservatively
+until the new sync completes.
+
+Run `npm test` for scoring, API, migration, and library-move regression checks.
+The Docker build runs these checks before building the app.
+
 ## Getting Started
 
 First, run the development server:

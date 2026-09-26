@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
 import type { PlexSection, PlexMediaItem } from "./types";
+import { DAY, POLICY } from "./pruning-score";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -107,7 +108,8 @@ const PAGE_SIZE = 200;
 
 export async function getLibraryItems(
   sectionId: string,
-  sectionType: "movie" | "show"
+  sectionType: "movie" | "show",
+  includeRecentAdditions = false
 ): Promise<PlexMediaItem[]> {
   const items: PlexMediaItem[] = [];
   let start = 0;
@@ -117,13 +119,16 @@ export async function getLibraryItems(
     const data = await plexFetch(`/library/sections/${sectionId}/all`, {
       "X-Plex-Container-Start": String(start),
       "X-Plex-Container-Size": String(PAGE_SIZE),
+      includeGuids: "1",
     }) as Record<string, unknown>;
 
     const container =
       (data as Record<string, unknown>).MediaContainer ||
       data;
 
-    totalSize = toInt((container as Record<string, unknown>).totalSize || (container as Record<string, unknown>).size);
+    const count = Number((container as Record<string, unknown>).totalSize ?? (container as Record<string, unknown>).size);
+    if (!Number.isFinite(count) || count < 0) throw new Error(`Plex returned an invalid catalog for section ${sectionId}`);
+    totalSize = count;
     if (totalSize === 0) break;
 
     // Items can be under "Metadata" or "Video" depending on response format
@@ -137,10 +142,43 @@ export async function getLibraryItems(
       items.push(parseMediaItem(item, sectionType, sectionId));
     }
 
-    start += PAGE_SIZE;
-    if (rawItems.length === 0) break;
+    if (rawItems.length === 0) throw new Error(`Plex catalog ended before all items were fetched for section ${sectionId}`);
+    start += rawItems.length;
   }
 
+  if (sectionType === "show" && includeRecentAdditions) {
+    // A new episode should give an old show the same grace period as a new
+    // title. Only read the recent end of the episode catalog.
+    const cutoff = Math.floor(Date.now() / 1000) - POLICY.newDays * DAY;
+    const byId = new Map(items.map((item) => [item.ratingKey, item]));
+    let episodeStart = 0;
+    while (true) {
+      const data = await plexFetch(`/library/sections/${sectionId}/all`, {
+        type: "4",
+        sort: "addedAt:desc",
+        "X-Plex-Container-Start": String(episodeStart),
+        "X-Plex-Container-Size": String(PAGE_SIZE),
+      }) as Record<string, unknown>;
+      const container = (data.MediaContainer || data) as Record<string, unknown>;
+      const episodes = ensureArray(container.Metadata || container.Video) as Record<string, unknown>[];
+      const count = Number(container.totalSize ?? container.size);
+      if (!Number.isFinite(count) || count < 0) throw new Error(`Plex returned an invalid episode catalog for section ${sectionId}`);
+      if (!episodes.length) {
+        if (episodeStart < count) throw new Error(`Plex episode catalog ended early for section ${sectionId}`);
+        break;
+      }
+      for (const episode of episodes) {
+        const show = byId.get(String(episode.grandparentRatingKey));
+        const addedAt = toInt(episode.addedAt);
+        if (show && addedAt > (show.latestMediaAddedAt || 0)) {
+          show.latestMediaAddedAt = addedAt;
+        }
+      }
+      episodeStart += episodes.length;
+      if (episodes.some((episode) => toInt(episode.addedAt) < cutoff) ||
+          episodeStart >= count) break;
+    }
+  }
   return items;
 }
 
@@ -198,6 +236,10 @@ function parseMediaItem(
 
   return {
     ratingKey: String(item.ratingKey),
+    guids: Array.from(new Set([
+      ...(typeof item.guid === "string" ? [item.guid] : []),
+      ...ensureArray(item.Guid as Record<string, unknown>[]).map((guid) => String(guid.id || "")),
+    ].filter(Boolean))),
     librarySectionId:
       sectionId ||
       (item.librarySectionID ? String(item.librarySectionID) : null),
@@ -205,6 +247,7 @@ function parseMediaItem(
     year: toInt(item.year) || null,
     rating: toFloat(item.rating),
     addedAt: toInt(item.addedAt) || null,
+    latestMediaAddedAt: toInt(item.addedAt) || null,
     lastViewedAt: toInt(item.lastViewedAt) || null,
     viewCount: toInt(item.viewCount),
     genres,

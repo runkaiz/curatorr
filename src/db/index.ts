@@ -117,4 +117,38 @@ sqlite.exec(`
   );
 `);
 
+// Additive migrations for explained scoring and library moves. Inspect columns
+// explicitly so genuine SQLite errors are not mistaken for duplicate columns.
+function addColumn(table: string, name: string, definition: string) {
+  const columns = sqlite.pragma(`table_info(${table})`) as { name: string }[];
+  if (!columns.some((column) => column.name === name)) {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+  }
+}
+
+sqlite.transaction(() => {
+  addColumn("library_items", "identity_guids", "TEXT");
+  addColumn("library_items", "latest_media_added_at", "INTEGER");
+  addColumn("library_items", "pruning_details", "TEXT");
+  addColumn("watch_history", "media_key", "TEXT NOT NULL DEFAULT ''");
+  addColumn("sync_sections", "history_synced_at", "INTEGER");
+  addColumn("sync_sections", "history_started_at", "INTEGER");
+  addColumn("sync_sections", "history_complete", "INTEGER NOT NULL DEFAULT 0");
+  sqlite.exec(`
+    UPDATE watch_history SET media_key = item_id WHERE media_key = ''
+      AND item_id IN (SELECT id FROM library_items WHERE type = 'movie');
+    CREATE TABLE IF NOT EXISTS plex_item_aliases (
+      old_id TEXT PRIMARY KEY NOT NULL,
+      item_id TEXT NOT NULL REFERENCES library_items(id) ON DELETE CASCADE
+    );
+  `);
+  const historyIndex = sqlite.pragma("index_info(watch_history_unique_idx)") as { name: string }[];
+  if (!historyIndex.some((column) => column.name === "media_key")) {
+    sqlite.exec(`
+      DROP INDEX IF EXISTS watch_history_unique_idx;
+      CREATE UNIQUE INDEX watch_history_unique_idx ON watch_history(item_id, user, media_key, watched_at);
+    `);
+  }
+})();
+
 export const db = drizzle(sqlite, { schema });

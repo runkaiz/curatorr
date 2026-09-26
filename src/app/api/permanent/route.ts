@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { permanentItems, libraryItems } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { reconcilePermanentItem } from "@/lib/permanent-collection";
+import { invalidatePruningScores } from "@/lib/pruning";
 
 export async function GET() {
   try {
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
       })
       .run();
 
+    invalidatePruningScores();
     try {
       const permanentCollection = await reconcilePermanentItem(itemId);
       return NextResponse.json(

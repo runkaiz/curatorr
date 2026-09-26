@@ -8,6 +8,8 @@ interface SyncResult {
   historyEntries: number;
   itemsRemoved: number;
   durationMs: number;
+  permanentRelinked?: number;
+  warnings?: string[];
   permanentCollection?: {
     enabled: boolean;
     added: number;
@@ -48,7 +50,7 @@ export default function SyncButton({
         : "";
       toast(
         `Synced ${data.itemsSynced} items and ${data.historyEntries} history entries${removedMsg}${collectionMsg}`,
-        data.permanentCollection?.failed > 0 ? "info" : "success"
+        data.permanentCollection?.failed > 0 || data.warnings?.length ? "info" : "success"
       );
       onSyncComplete();
     } catch (err) {
@@ -102,6 +104,15 @@ export default function SyncButton({
       )}
 
       {error && <span className="text-sm text-red-400">{error}</span>}
+      {!!result?.permanentRelinked && <span className="text-sm text-green-400">Reconnected {result.permanentRelinked} permanent items</span>}
+      {!!result?.warnings?.length && (
+        <details className="max-w-md text-sm text-amber-300">
+          <summary className="cursor-pointer">{result.warnings.length} sync notes to review</summary>
+          <ul className="mt-2 list-disc space-y-1 pl-4">
+            {result.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }

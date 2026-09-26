@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { permanentItems } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { reconcilePermanentItem } from "@/lib/permanent-collection";
+import { invalidatePruningScores } from "@/lib/pruning";
 
 export async function DELETE(
   _request: NextRequest,
@@ -21,6 +22,7 @@ export async function DELETE(
       );
     }
 
+    invalidatePruningScores();
     try {
       const permanentCollection = await reconcilePermanentItem(params.id);
       return NextResponse.json({

@@ -82,9 +82,9 @@ export default function StatsCards({ refreshKey }: { refreshKey: number }) {
       sub: stats.sectionCounts.map((section) => `${section.title}: ${section.count}`).join(" · ") || "No synced libraries",
     },
     {
-      label: "Purgeable",
+      label: "Deletion Candidates",
       value: formatFileSize(stats.purgeableSize),
-      sub: `${stats.purgeableCount} never-watched items`,
+      sub: `${stats.purgeableCount} titles to review`,
     },
     {
       label: "Largest Item",
@@ -96,7 +96,7 @@ export default function StatsCards({ refreshKey }: { refreshKey: number }) {
         : "No items",
     },
     {
-      label: "Oldest Unwatched",
+      label: "Oldest Without Plays",
       value: stats.oldestUnwatched
         ? formatRelativeDate(stats.oldestUnwatched.addedAt)
         : "N/A",

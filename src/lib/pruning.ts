@@ -1,249 +1,97 @@
 import { db } from "@/db";
-import { pruningConfig } from "@/db/schema";
-import { sql } from "drizzle-orm";
+import { libraryItems, permanentItems, pruningConfig, syncSections } from "@/db/schema";
+import { eq, sql } from "drizzle-orm";
+import { recommend, SCORING_VERSION, type WatchSummary } from "./pruning-score";
+import { getPossiblePermanentMatchIds } from "./library-identity";
 
-interface Weights {
-  engagement: number;
-  recency: number;
-  size: number;
-  reach: number;
-  resolution: number;
-  staleness: number;
-  gracePeriodDays: number;
-  gracePeriodMaxScore: number;
+interface HistoryUnit {
+  item_id: string;
+  user: string;
+  media_key: string;
+  plays: number;
+  completed_plays: number;
+  last_watched: number;
+  last_incomplete: number | null;
+  last_completed: number | null;
 }
 
-const DEFAULT_WEIGHTS: Weights = {
-  engagement: 0.3,
-  recency: 0.25,
-  size: 0.15,
-  reach: 0.15,
-  resolution: 0.05,
-  staleness: 0.1,
-  gracePeriodDays: 30,
-  gracePeriodMaxScore: 50,
-};
-
-interface ItemRow {
-  id: string;
-  play_count: number;
-  last_viewed_at: number | null;
-  file_size_bytes: number;
-  resolution: string | null;
-  added_at: number | null;
-  is_permanent: number;
-  unique_users: number;
-  completed_users: number;
-  avg_percent: number;
-}
-
-export function loadWeights(): Weights {
-  const rows = db
-    .select({ key: pruningConfig.key, value: pruningConfig.value })
-    .from(pruningConfig)
-    .all();
-
-  const map = new Map(rows.map((r) => [r.key, r.value]));
-
-  return {
-    engagement: map.get("engagement_weight") ?? DEFAULT_WEIGHTS.engagement,
-    recency: map.get("recency_weight") ?? DEFAULT_WEIGHTS.recency,
-    size: map.get("size_weight") ?? DEFAULT_WEIGHTS.size,
-    reach: map.get("reach_weight") ?? DEFAULT_WEIGHTS.reach,
-    resolution: map.get("resolution_weight") ?? DEFAULT_WEIGHTS.resolution,
-    staleness: map.get("staleness_weight") ?? DEFAULT_WEIGHTS.staleness,
-    gracePeriodDays:
-      map.get("grace_period_days") ?? DEFAULT_WEIGHTS.gracePeriodDays,
-    gracePeriodMaxScore:
-      map.get("grace_period_max_score") ?? DEFAULT_WEIGHTS.gracePeriodMaxScore,
-  };
-}
-
-function computeEngagement(
-  playCount: number,
-  completedUsers: number,
-  avgPercent: number,
-  totalUsers: number
-): number {
-  const playFactor = Math.min(playCount / 10, 1.0);
-  const completionFactor =
-    totalUsers > 0 ? Math.min(completedUsers / totalUsers, 1.0) : 0;
-  const depthFactor = avgPercent / 100;
-
-  const engagement =
-    0.5 * playFactor + 0.3 * completionFactor + 0.2 * depthFactor;
-  return 1.0 - engagement;
-}
-
-function computeRecency(lastViewedAt: number | null, now: number): number {
-  if (!lastViewedAt) return 1.0;
-  const daysSince = (now - lastViewedAt) / 86400;
-  return Math.min(daysSince / 730, 1.0);
-}
-
-function computeSizePercentile(
-  fileSize: number,
-  sortedSizes: number[]
-): number {
-  if (sortedSizes.length === 0 || fileSize <= 0) return 0;
-  // Binary search for position
-  let lo = 0;
-  let hi = sortedSizes.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >>> 1;
-    if (sortedSizes[mid] < fileSize) lo = mid + 1;
-    else hi = mid;
+export function summarizeHistory(units: HistoryUnit[], type: string, episodeCount: number | null): WatchSummary {
+  const users = new Map<string, { completed: Set<string>; unfinished: boolean }>();
+  const summary: WatchSummary = { plays: 0, viewers: 0, lastWatchedAt: null, unfinishedViewers: 0, repeatPlays: 0 };
+  for (const unit of units) {
+    const user = users.get(unit.user) || { completed: new Set<string>(), unfinished: false };
+    if (unit.completed_plays > 0 && unit.media_key) user.completed.add(unit.media_key);
+    if ((unit.last_incomplete || 0) > (unit.last_completed || 0)) user.unfinished = true;
+    users.set(unit.user, user);
+    summary.plays += unit.plays;
+    summary.lastWatchedAt = Math.max(summary.lastWatchedAt || 0, unit.last_watched);
+    summary.repeatPlays += Math.max(0, unit.completed_plays - 1);
   }
-  return lo / sortedSizes.length;
+  summary.viewers = users.size;
+  summary.unfinishedViewers = Array.from(users.values()).filter((user) => user.unfinished ||
+    (type === "show" && user.completed.size > 0 && (!episodeCount || user.completed.size < episodeCount))).length;
+  return summary;
 }
 
-function computeReach(
-  uniqueUsers: number,
-  completedUsers: number,
-  totalUsers: number
-): number {
-  if (totalUsers <= 1) return 0.5;
-  if (uniqueUsers === 0) return 1.0;
-
-  const watchRatio = uniqueUsers / totalUsers;
-  const completeRatio = completedUsers / totalUsers;
-  const reach = 0.6 * watchRatio + 0.4 * completeRatio;
-  return 1.0 - reach;
+export function invalidatePruningScores(): void {
+  db.delete(pruningConfig).where(eq(pruningConfig.key, "scores_computed_at")).run();
 }
 
-function computeResolution(resolution: string | null): number {
-  switch (resolution) {
-    case "4K":
-      return 0.0;
-    case "1080p":
-      return 0.2;
-    case "720p":
-      return 0.6;
-    case "SD":
-    case "480p":
-      return 0.8;
-    default:
-      return 0.4;
-  }
+export function ensurePruningScores(): void {
+  const version = db.select().from(pruningConfig).where(eq(pruningConfig.key, "scoring_version")).get()?.value;
+  const computedAt = db.select().from(pruningConfig).where(eq(pruningConfig.key, "scores_computed_at")).get()?.value || 0;
+  if (version !== SCORING_VERSION || Date.now() / 1000 - computedAt >= 3600) computeAllPruningScores();
 }
 
-function computeStaleness(
-  addedAt: number | null,
-  playCount: number,
-  now: number
-): number {
-  const daysSinceAdded = addedAt ? (now - addedAt) / 86400 : 365;
-
-  if (playCount === 0) {
-    return Math.min(daysSinceAdded / 365, 1.0);
-  }
-
-  const monthsSinceAdded = Math.max(daysSinceAdded / 30, 1);
-  const velocity = playCount / monthsSinceAdded;
-  return 1.0 - Math.min(velocity / 0.5, 1.0);
-}
-
-export function computeItemScore(
-  item: ItemRow,
-  ctx: {
-    totalUsers: number;
-    sortedSizes: number[];
-    weights: Weights;
-    now: number;
-  }
-): number {
-  if (item.is_permanent) return 0;
-
-  const { totalUsers, sortedSizes, weights, now } = ctx;
-
-  const engagement = computeEngagement(
-    item.play_count,
-    item.completed_users,
-    item.avg_percent,
-    totalUsers
-  );
-  const recency = computeRecency(item.last_viewed_at, now);
-  const size = computeSizePercentile(item.file_size_bytes, sortedSizes);
-  const reach = computeReach(
-    item.unique_users,
-    item.completed_users,
-    totalUsers
-  );
-  const resolution = computeResolution(item.resolution);
-  const staleness = computeStaleness(item.added_at, item.play_count, now);
-
-  let score = Math.round(
-    100 *
-      (weights.engagement * engagement +
-        weights.recency * recency +
-        weights.size * size +
-        weights.reach * reach +
-        weights.resolution * resolution +
-        weights.staleness * staleness)
-  );
-
-  score = Math.max(0, Math.min(100, score));
-
-  // Grace period for new items
-  const daysSinceAdded = item.added_at ? (now - item.added_at) / 86400 : 365;
-  if (daysSinceAdded < weights.gracePeriodDays) {
-    score = Math.min(score, weights.gracePeriodMaxScore);
-  }
-
-  return score;
-}
-
-export function computeAllPruningScores(): void {
-  const now = Math.floor(Date.now() / 1000);
-  const weights = loadWeights();
-
-  // Get total distinct users
-  const userResult = db.get<{ count: number }>(
-    sql`SELECT COUNT(DISTINCT user) as count FROM watch_history`
-  );
-  const totalUsers = userResult?.count ?? 0;
-
-  // Get all items with aggregated watch stats in one query
-  const items = db.all<ItemRow>(sql`
-    SELECT
-      li.id,
-      li.play_count,
-      li.last_viewed_at,
-      li.file_size_bytes,
-      li.resolution,
-      li.added_at,
-      (p.item_id IS NOT NULL) as is_permanent,
-      COALESCE(wh.unique_users, 0) as unique_users,
-      COALESCE(wh.completed_users, 0) as completed_users,
-      COALESCE(wh.avg_percent, 0) as avg_percent
-    FROM library_items li
-    LEFT JOIN permanent_items p ON li.id = p.item_id
-    LEFT JOIN (
-      SELECT
-        item_id,
-        COUNT(DISTINCT user) as unique_users,
-        COUNT(DISTINCT CASE WHEN was_completed = 1 THEN user END) as completed_users,
-        AVG(percent_complete) as avg_percent
-      FROM watch_history
-      GROUP BY item_id
-    ) wh ON li.id = wh.item_id
+export function computeAllPruningScores(now = Math.floor(Date.now() / 1000)): void {
+  const items = db.select({ item: libraryItems, section: syncSections,
+    isPermanent: sql<number>`${permanentItems.itemId} IS NOT NULL`,
+  }).from(libraryItems)
+    .leftJoin(permanentItems, eq(libraryItems.id, permanentItems.itemId))
+    .leftJoin(syncSections, eq(libraryItems.plexSectionId, syncSections.key)).all();
+  const history = db.all<HistoryUnit>(sql`
+    SELECT item_id, user, media_key, COUNT(*) AS plays,
+      SUM(was_completed) AS completed_plays, MAX(watched_at) AS last_watched,
+      MAX(CASE WHEN was_completed = 0 AND percent_complete >= 10 THEN watched_at END) AS last_incomplete,
+      MAX(CASE WHEN was_completed = 1 THEN watched_at END) AS last_completed
+    FROM watch_history GROUP BY item_id, user, media_key
   `);
-
-  // Build sorted sizes for percentile calculation
-  const sortedSizes = items
-    .map((i) => i.file_size_bytes)
-    .filter((s) => s > 0)
-    .sort((a, b) => a - b);
-
-  const ctx = { totalUsers, sortedSizes, weights, now };
-
-  // Compute and batch update
-  db.run(sql`BEGIN`);
-  for (const item of items) {
-    const score = computeItemScore(item, ctx);
-    db.run(
-      sql`UPDATE library_items SET pruning_score = ${score} WHERE id = ${item.id}`
-    );
+  const historyByItem = new Map<string, HistoryUnit[]>();
+  for (const row of history) {
+    const units = historyByItem.get(row.item_id) || [];
+    units.push(row);
+    historyByItem.set(row.item_id, units);
   }
-  db.run(sql`COMMIT`);
+  const cohorts = new Map<string, number[]>();
+  const cohortKey = (item: typeof libraryItems.$inferSelect) => `${item.plexSectionId || "unknown"}:${item.type}`;
+  for (const { item, section } of items) {
+    if (item.deletedFromSource || section?.enabled === false || item.fileSizeBytes <= 0) continue;
+    const sizes = cohorts.get(cohortKey(item)) || [];
+    sizes.push(item.fileSizeBytes);
+    cohorts.set(cohortKey(item), sizes);
+  }
+  for (const sizes of Array.from(cohorts.values())) sizes.sort((a, b) => a - b);
+
+  // If recovery could not choose between copies, none of the possible
+  // destination entries should become a deletion recommendation.
+  const possibleMatches = getPossiblePermanentMatchIds();
+
+  db.transaction((tx) => {
+    for (const { item, section, isPermanent } of items) {
+      const recommendation = recommend({
+        ...item, isPermanent: !!isPermanent, possiblePermanentMatch: possibleMatches.has(item.id),
+        libraryEnabled: section?.enabled !== false,
+        historyComplete: section?.historyComplete || false,
+        historySyncedAt: section?.historySyncedAt || null,
+        historyStartedAt: section?.historyStartedAt || null,
+        watch: summarizeHistory(historyByItem.get(item.id) || [], item.type, item.episodeCount),
+      }, cohorts.get(cohortKey(item)) || [], now);
+      tx.update(libraryItems).set({ pruningScore: recommendation.score, pruningDetails: JSON.stringify(recommendation) })
+        .where(eq(libraryItems.id, item.id)).run();
+    }
+    for (const [key, value] of [["scoring_version", SCORING_VERSION], ["scores_computed_at", now]] as const) {
+      tx.insert(pruningConfig).values({ key, value, updatedAt: now })
+        .onConflictDoUpdate({ target: pruningConfig.key, set: { value, updatedAt: now } }).run();
+    }
+  });
 }

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { syncSections } from "@/db/schema";
 import { getLibrarySections } from "@/lib/plex";
+import { invalidatePruningScores } from "@/lib/pruning";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +69,7 @@ export async function PUT(request: Request) {
       }
     });
 
+    invalidatePruningScores();
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Failed to save sections:", error);

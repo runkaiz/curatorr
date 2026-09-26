@@ -2,21 +2,23 @@
 
 const filters = [
   { value: "", label: "All" },
-  { value: "high_score", label: "High Score (70+)" },
-  { value: "never_watched", label: "Never Watched" },
-  { value: "watched_once_year_ago", label: "Watched Once (1yr+)" },
+  { value: "high_score", label: "Deletion Candidates" },
+  { value: "never_watched", label: "No Recorded Plays" },
+  { value: "watched_once_year_ago", label: "Movies: One Play (1yr+)" },
   { value: "largest", label: "Largest" },
   { value: "low_resolution", label: "Low Res" },
-  { value: "abandoned", label: "Abandoned" },
-  { value: "single_user", label: "Single User" },
-  { value: "not_owner", label: "Not Watched by Owner" },
-  { value: "fully_watched", label: "Fully Watched" },
+  { value: "abandoned", label: "Unfinished & Idle (180d+)" },
+  { value: "single_user", label: "One Recorded Viewer" },
+  { value: "fully_watched", label: "Completed Movies" },
 ];
 
 interface AdminFilterBarProps {
   activeFilter: string;
   hidePermanent: boolean;
   search: string;
+  section: string;
+  sections: { key: string; title: string }[];
+  onSectionChange: (section: string) => void;
   onFilterChange: (filter: string) => void;
   onHidePermanentChange: (hide: boolean) => void;
   onSearchChange: (query: string) => void;
@@ -26,6 +28,9 @@ export default function AdminFilterBar({
   activeFilter,
   hidePermanent,
   search,
+  section,
+  sections,
+  onSectionChange,
   onFilterChange,
   onHidePermanentChange,
   onSearchChange,
@@ -55,6 +60,11 @@ export default function AdminFilterBar({
             className="w-48 rounded-md border border-slate-600 bg-slate-800 py-1.5 pl-8 pr-2 text-xs text-slate-200 placeholder:text-slate-500 focus:border-blue-500 focus:outline-none"
           />
         </div>
+        <select aria-label="Library" value={section} onChange={(event) => onSectionChange(event.target.value)}
+          className="rounded-md border border-slate-600 bg-slate-800 px-2 py-1.5 text-xs text-slate-200">
+          <option value="">All Libraries</option>
+          {sections.map((item) => <option key={item.key} value={item.key}>{item.title}</option>)}
+        </select>
         <div className="mx-1 h-5 w-px bg-slate-700" />
         {filters.map((f) => (
           <button

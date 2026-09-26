@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { libraryItems, permanentItems, syncSections } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
+import { ensurePruningScores } from "@/lib/pruning";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    ensurePruningScores();
     // Total size and counts
     const [totals] = db
       .select({
@@ -26,7 +28,7 @@ export async function GET() {
       .groupBy(syncSections.key)
       .all();
 
-    // Purgeable estimate: never-watched, non-permanent items
+    // Count only current candidates, excluding all scoring protections.
     const [purgeable] = db
       .select({
         purgeableSize: sql<number>`coalesce(sum(${libraryItems.fileSizeBytes}), 0)`,
@@ -35,7 +37,9 @@ export async function GET() {
       .from(libraryItems)
       .leftJoin(permanentItems, eq(libraryItems.id, permanentItems.itemId))
       .where(
-        sql`${libraryItems.playCount} = 0 AND ${permanentItems.itemId} IS NULL`
+        sql`${libraryItems.pruningScore} >= 70 AND ${permanentItems.itemId} IS NULL
+          AND ${libraryItems.deletedFromSource} IS NULL
+          AND json_extract(${libraryItems.pruningDetails}, '$.decision') = 'candidate'`
       )
       .all();
 

@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { libraryItems, permanentItems, syncSections, watchHistory } from "@/db/schema";
-import { eq, sql, and, like, gte, lt, desc, asc, isNotNull } from "drizzle-orm";
+import { libraryItems, permanentItems, syncSections } from "@/db/schema";
+import { eq, sql, and, like, gte, lt, desc, asc, isNotNull, isNull } from "drizzle-orm";
+
+import { ensurePruningScores } from "@/lib/pruning";
+import { parseRecommendation } from "@/lib/pruning-score";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
+    ensurePruningScores();
     const { searchParams } = request.nextUrl;
     const type = searchParams.get("type");
     const section = searchParams.get("section");
@@ -18,20 +22,21 @@ export async function GET(request: NextRequest) {
     const permanentOnly = searchParams.get("permanent_only") === "true";
     const sort = searchParams.get("sort") || "added_at";
     const order = searchParams.get("order") || "desc";
-    const page = parseInt(searchParams.get("page") || "1", 10);
-    const limit = Math.min(
-      parseInt(searchParams.get("limit") || "50", 10),
-      100
-    );
+    const positiveInt = (value: string | null, fallback: number) => {
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+    };
+    const page = positiveInt(searchParams.get("page"), 1);
+    const limit = Math.min(positiveInt(searchParams.get("limit"), 50), 100);
     const offset = (page - 1) * limit;
-
-    // If using a pre-built filter, use a specialized query
-    if (filter) {
-      return handleFilteredQuery(filter, hidePermanent, search, sort, order, page, limit, offset);
-    }
 
     // Build where conditions
     const conditions = [];
+    if (filter) {
+      const condition = getFilterCondition(filter);
+      if (!condition) return NextResponse.json({ error: `Unknown filter: ${filter}` }, { status: 400 });
+      conditions.push(condition);
+    }
 
     if (type && (type === "movie" || type === "show")) {
       conditions.push(eq(libraryItems.type, type));
@@ -65,8 +70,8 @@ export async function GET(request: NextRequest) {
     const where = conditions.length > 0 ? and(...conditions) : undefined;
 
     // Build sort
-    const sortColumn = getSortColumn(sort);
-    const orderDir = order === "asc" ? asc(sortColumn) : desc(sortColumn);
+    const sortColumn = getSortColumn(filter === "largest" ? "size" : sort);
+    const orderDir = order === "asc" && filter !== "largest" ? asc(sortColumn) : desc(sortColumn);
 
     // Fetch items with permanent status
     const items = db
@@ -88,6 +93,7 @@ export async function GET(request: NextRequest) {
         episodeCount: libraryItems.episodeCount,
         filePath: libraryItems.filePath,
         pruningScore: libraryItems.pruningScore,
+        pruningDetails: libraryItems.pruningDetails,
         deletedFromSource: libraryItems.deletedFromSource,
         isPermanent: sql<boolean>`${permanentItems.itemId} IS NOT NULL`.as(
           "is_permanent"
@@ -97,7 +103,7 @@ export async function GET(request: NextRequest) {
       .leftJoin(permanentItems, eq(libraryItems.id, permanentItems.itemId))
       .leftJoin(syncSections, eq(libraryItems.plexSectionId, syncSections.key))
       .where(where)
-      .orderBy(orderDir)
+      .orderBy(orderDir, desc(libraryItems.fileSizeBytes), asc(libraryItems.id))
       .limit(limit)
       .offset(offset)
       .all();
@@ -130,7 +136,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      items,
+      items: items.map(({ pruningDetails, ...item }) => ({ ...item, isPermanent: !!item.isPermanent, recommendation: parseRecommendation(pruningDetails) })),
       total: count,
       page,
       totalPages: Math.ceil(count / limit),
@@ -145,234 +151,34 @@ export async function GET(request: NextRequest) {
   }
 }
 
-function handleFilteredQuery(
-  filter: string,
-  hidePermanent: boolean,
-  search: string,
-  sort: string,
-  order: string,
-  page: number,
-  limit: number,
-  offset: number,
-) {
-  const permanentCondition = hidePermanent
-    ? sql`AND p.item_id IS NULL`
-    : sql``;
-  const escapedSearch = search.replace(/'/g, "''");
-  const searchCondition = search
-    ? `AND li.title LIKE '%${escapedSearch}%'`
-    : "";
-
-  let filterSql: string;
-  const sortClause = getFilterSortClause(sort, order, filter);
-
+function getFilterCondition(filter: string) {
   switch (filter) {
     case "high_score":
-      filterSql = `
-        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
-        FROM library_items li
-        LEFT JOIN permanent_items p ON li.id = p.item_id
-        WHERE li.pruning_score >= 70 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
-        ${searchCondition}
-        ORDER BY li.pruning_score DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-      break;
-
+      return and(gte(libraryItems.pruningScore, 70), isNull(permanentItems.itemId), isNull(libraryItems.deletedFromSource),
+        sql`json_extract(${libraryItems.pruningDetails}, '$.decision') = 'candidate'`);
     case "never_watched":
-      filterSql = `
-        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
-        FROM library_items li
-        LEFT JOIN permanent_items p ON li.id = p.item_id
-        WHERE li.play_count = 0 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
-        ${searchCondition}
-        ${sortClause}
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-      break;
-
-    case "watched_once_year_ago": {
-      const oneYearAgo = Math.floor(Date.now() / 1000) - 365 * 86400;
-      filterSql = `
-        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
-        FROM library_items li
-        LEFT JOIN permanent_items p ON li.id = p.item_id
-        WHERE li.play_count = 1 AND li.last_viewed_at < ${oneYearAgo}
-        ${hidePermanent ? "AND p.item_id IS NULL" : ""}
-        ${searchCondition}
-        ${sortClause}
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-      break;
-    }
-
+      return and(eq(libraryItems.playCount, 0), isNull(libraryItems.lastViewedAt),
+        sql`NOT EXISTS (SELECT 1 FROM watch_history wh WHERE wh.item_id = ${libraryItems.id})`);
+    case "watched_once_year_ago":
+      return and(eq(libraryItems.type, "movie"), eq(libraryItems.playCount, 1),
+        lt(libraryItems.lastViewedAt, Math.floor(Date.now() / 1000) - 365 * 86400));
     case "largest":
-      filterSql = `
-        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
-        FROM library_items li
-        LEFT JOIN permanent_items p ON li.id = p.item_id
-        WHERE 1=1 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
-        ${searchCondition}
-        ORDER BY li.file_size_bytes DESC
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-      break;
-
+      return isNull(libraryItems.deletedFromSource);
     case "low_resolution":
-      filterSql = `
-        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
-        FROM library_items li
-        LEFT JOIN permanent_items p ON li.id = p.item_id
-        WHERE li.resolution IN ('SD', '480p', '720p', 'sd', '480', '720')
-        ${hidePermanent ? "AND p.item_id IS NULL" : ""}
-        ${searchCondition}
-        ${sortClause}
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-      break;
-
+      return sql`${libraryItems.resolution} IN ('SD', '480p', '720p', 'sd', '480', '720')`;
     case "abandoned":
-      filterSql = `
-        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
-        FROM library_items li
-        LEFT JOIN permanent_items p ON li.id = p.item_id
-        INNER JOIN (
-          SELECT item_id, MAX(percent_complete) as max_pct,
-                 MAX(was_completed) as any_completed
-          FROM watch_history
-          GROUP BY item_id
-        ) wh ON li.id = wh.item_id
-        WHERE wh.max_pct < 50 AND wh.any_completed = 0
-        ${hidePermanent ? "AND p.item_id IS NULL" : ""}
-        ${searchCondition}
-        ${sortClause}
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-      break;
-
+      return sql`json_extract(${libraryItems.pruningDetails}, '$.unfinishedViewers') > 0
+        AND json_extract(${libraryItems.pruningDetails}, '$.idleDays') >= 180`;
     case "single_user":
-      filterSql = `
-        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
-        FROM library_items li
-        LEFT JOIN permanent_items p ON li.id = p.item_id
-        INNER JOIN (
-          SELECT item_id FROM watch_history
-          WHERE was_completed = 1
-          GROUP BY item_id
-          HAVING COUNT(DISTINCT user) = 1
-        ) wh ON li.id = wh.item_id
-        WHERE 1=1 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
-        ${searchCondition}
-        ${sortClause}
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-      break;
-
-    case "not_owner":
-      filterSql = `
-        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
-        FROM library_items li
-        LEFT JOIN permanent_items p ON li.id = p.item_id
-        WHERE li.id IN (
-          SELECT DISTINCT item_id FROM watch_history
-        )
-        AND li.id NOT IN (
-          SELECT item_id FROM watch_history
-          WHERE user = (SELECT user FROM watch_history GROUP BY user ORDER BY COUNT(*) DESC LIMIT 1)
-        )
-        ${hidePermanent ? "AND p.item_id IS NULL" : ""}
-        ${searchCondition}
-        ${sortClause}
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-      break;
-
+      return sql`(SELECT COUNT(DISTINCT user) FROM watch_history wh WHERE wh.item_id = ${libraryItems.id}) = 1`;
     case "fully_watched":
-      filterSql = `
-        SELECT li.*, (p.item_id IS NOT NULL) as is_permanent
-        FROM library_items li
-        LEFT JOIN permanent_items p ON li.id = p.item_id
-        INNER JOIN (
-          SELECT item_id
-          FROM watch_history
-          GROUP BY item_id
-          HAVING MIN(was_completed) = 1 AND COUNT(DISTINCT user) > 0
-        ) wh ON li.id = wh.item_id
-        WHERE 1=1 ${hidePermanent ? "AND p.item_id IS NULL" : ""}
-        ${searchCondition}
-        ${sortClause}
-        LIMIT ${limit} OFFSET ${offset}
-      `;
-      break;
-
+      // An episode completion is not evidence of a completed series.
+      return and(eq(libraryItems.type, "movie"),
+        sql`EXISTS (SELECT 1 FROM watch_history wh WHERE wh.item_id = ${libraryItems.id} AND wh.was_completed = 1)`,
+        sql`json_extract(${libraryItems.pruningDetails}, '$.unfinishedViewers') = 0`);
     default:
-      return NextResponse.json(
-        { error: `Unknown filter: ${filter}` },
-        { status: 400 }
-      );
+      return null;
   }
-
-  const items = db.all(sql.raw(filterSql));
-
-  // Get count for the same filter (replace LIMIT/OFFSET with count)
-  const countSql = filterSql
-    .replace(/SELECT li\.\*, \(p\.item_id IS NOT NULL\) as is_permanent/, "SELECT COUNT(*) as count")
-    .replace(/\s*ORDER BY[\s\S]*?(?=LIMIT|$)/, " ")
-    .replace(/LIMIT \d+ OFFSET \d+/, "");
-
-  const [{ count }] = db.all(sql.raw(countSql)) as [{ count: number }];
-
-  // Normalize the raw SQL results to match the Drizzle output shape
-  const sectionTitles = new Map(db.select({ key: syncSections.key, title: syncSections.title })
-    .from(syncSections).all().map((section) => [section.key, section.title]));
-  const normalized = (items as Record<string, unknown>[]).map((row) => ({
-    id: row.id,
-    plexSectionId: row.plex_section_id,
-    sectionTitle: sectionTitles.get(String(row.plex_section_id)) || null,
-    type: row.type,
-    title: row.title,
-    year: row.year,
-    genre: row.genre,
-    plexRating: row.plex_rating,
-    addedAt: row.added_at,
-    lastViewedAt: row.last_viewed_at,
-    playCount: row.play_count,
-    fileSizeBytes: row.file_size_bytes,
-    resolution: row.resolution,
-    bitrate: row.bitrate,
-    episodeCount: row.episode_count,
-    filePath: row.file_path,
-    pruningScore: row.pruning_score ?? null,
-    deletedFromSource: row.deleted_from_source ?? null,
-    isPermanent: !!row.is_permanent,
-  }));
-
-  return NextResponse.json({
-    items: normalized,
-    total: count,
-    page,
-    totalPages: Math.ceil(count / limit),
-    genres: [],
-  });
-}
-
-function getFilterSortClause(sort: string, order: string, filter: string): string {
-  // For "largest" filter, sorting is already baked in
-  if (filter === "largest") return "";
-
-  const dir = order === "asc" ? "ASC" : "DESC";
-  const col = {
-    title: "li.title",
-    year: "li.year",
-    rating: "li.plex_rating",
-    size: "li.file_size_bytes",
-    play_count: "li.play_count",
-    last_viewed: "li.last_viewed_at",
-    added_at: "li.added_at",
-    score: "li.pruning_score",
-  }[sort] || "li.file_size_bytes";
-
-  return `ORDER BY ${col} ${dir}`;
 }
 
 function getSortColumn(sort: string) {

@@ -8,6 +8,7 @@ import {
   setItemCollectionMembership,
 } from "./plex";
 import type { PlexCollectionSyncResult, PlexMediaItem } from "./types";
+import { getPossiblePermanentMatchIds } from "./library-identity";
 
 const DEFAULT_COLLECTION_NAME = "Permanent Exhibition";
 
@@ -83,10 +84,25 @@ async function reconcileNow(
   );
 
   result.scanned = items.length;
+  const pendingPermanentIds = getPossiblePermanentMatchIds();
+  const knownIds = new Set(db.select({ id: libraryItems.id }).from(libraryItems).all().map((row) => row.id));
+  const completedSections = new Set(db.select().from(syncSections).all()
+    .filter((section) => section.historyComplete).map((section) => section.key));
 
   for (const item of items) {
+    if (pendingPermanentIds.has(item.ratingKey)) {
+      result.skipped++;
+      result.errors.push(`${item.title}: resolve the possible permanent-item match before changing its Plex collection`);
+      continue;
+    }
     const shouldInclude = permanentIds.has(item.ratingKey);
     const isIncluded = hasCollection(item, collectionName);
+
+    if (!shouldInclude && isIncluded && (!knownIds.has(item.ratingKey) || !completedSections.has(item.librarySectionId || ""))) {
+      result.skipped++;
+      result.errors.push(`${item.title}: run a complete library sync before removing a Plex collection tag`);
+      continue;
+    }
 
     if (shouldInclude === isIncluded) {
       result.unchanged += 1;

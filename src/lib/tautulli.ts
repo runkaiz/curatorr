@@ -77,6 +77,7 @@ export async function getLibraryMediaInfo(
       section_id: sectionId,
       length: String(TAUTULLI_PAGE_SIZE),
       start: String(start),
+      refresh: start === 0 ? "true" : "false",
     })) as {
       recordsFiltered: number;
       data: Record<string, unknown>[];
@@ -89,7 +90,8 @@ export async function getLibraryMediaInfo(
       items.push({
         ratingKey: String(item.rating_key),
         fileSize: parseInt(String(item.file_size || "0"), 10) || 0,
-        playCount: parseInt(String(item.play_count || "0"), 10) || 0,
+        playCount: item.play_count == null || item.play_count === ""
+          ? null : Math.max(0, Number(item.play_count) || 0),
         lastPlayed: item.last_played
           ? parseInt(String(item.last_played), 10)
           : null,
@@ -106,20 +108,20 @@ export async function getLibraryMediaInfo(
 }
 
 export async function getHistory(
-  sectionId?: string,
-  length: number = 10000
+  sectionId?: string
 ): Promise<TautulliHistoryEntry[]> {
   const entries: TautulliHistoryEntry[] = [];
   let start = 0;
   let totalCount = Infinity;
 
   while (start < totalCount) {
-    const pageLength = Math.min(TAUTULLI_PAGE_SIZE, length - start);
-    if (pageLength <= 0) break;
-
     const params: Record<string, string> = {
-      length: String(pageLength),
+      length: String(TAUTULLI_PAGE_SIZE),
       start: String(start),
+      grouping: "1", // Treat resumed sessions as one viewing.
+      include_activity: "0",
+      order_column: "date",
+      order_dir: "asc",
     };
     if (sectionId) {
       params.section_id = sectionId;
@@ -130,31 +132,51 @@ export async function getHistory(
       data: Record<string, unknown>[];
     };
 
-    totalCount = Math.min(data.recordsFiltered || 0, length);
-    if (!data.data || data.data.length === 0) break;
-
-    for (const item of data.data) {
-      const watchedStatus = parseInt(String(item.watched_status || "0"), 10);
-      const percentComplete = parseInt(
-        String(item.percent_complete || "0"),
-        10
-      );
-
-      entries.push({
-        ratingKey: String(
-          item.rating_key || item.grandparent_rating_key || ""
-        ),
-        user: String(item.user || ""),
-        date: parseInt(String(item.date || item.started || "0"), 10),
-        percentComplete,
-        wasCompleted: watchedStatus === 1,
-      });
+    const count = Number(data.recordsFiltered);
+    if (!Number.isFinite(count) || count < 0 || !Array.isArray(data.data)) {
+      throw new Error("Tautulli returned an invalid history page");
+    }
+    totalCount = count;
+    if (data.data.length === 0) {
+      if (start < totalCount) throw new Error("Tautulli history ended before all records were fetched");
+      break;
     }
 
-    start += pageLength;
+    for (const item of data.data) {
+      const entry = parseHistoryEntry(item);
+      if (entry) entries.push(entry);
+    }
+
+    start += data.data.length;
   }
 
   return entries;
+}
+
+export function parseHistoryEntry(item: Record<string, unknown>): TautulliHistoryEntry | null {
+  const mediaType = item.media_type;
+  if (mediaType && mediaType !== "movie" && mediaType !== "episode") return null;
+  let mediaKey = String(item.rating_key || "");
+  const ratingKey = mediaType === "episode" || item.grandparent_rating_key
+    ? String(item.grandparent_rating_key || "") : mediaKey;
+  const user = String(item.user || item.user_id || "");
+  const date = Number(item.date || item.started || 0);
+  if (!ratingKey || !mediaKey || !user || !Number.isFinite(date) || date <= 0) return null;
+  if (mediaType === "episode" && item.parent_media_index != null && item.media_index != null &&
+      item.parent_media_index !== "" && item.media_index !== "") {
+    const season = Number(item.parent_media_index), episode = Number(item.media_index);
+    if (Number.isInteger(season) && season >= 0 && Number.isInteger(episode) && episode >= 0) {
+      mediaKey = `s${season}e${episode}`;
+    }
+  }
+  return {
+    ratingKey,
+    mediaKey,
+    user,
+    date,
+    percentComplete: Math.min(100, Math.max(0, Number(item.percent_complete) || 0)),
+    wasCompleted: Number(item.watched_status) === 1,
+  };
 }
 
 export async function getUsers(): Promise<TautulliUser[]> {

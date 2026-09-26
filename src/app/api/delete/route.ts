@@ -3,6 +3,8 @@ import { db } from "@/db";
 import { libraryItems, permanentItems, watchHistory } from "@/db/schema";
 import { eq, inArray } from "drizzle-orm";
 import { getTmdbId } from "@/lib/plex";
+import { getPossiblePermanentMatchIds } from "@/lib/library-identity";
+import { invalidatePruningScores } from "@/lib/pruning";
 import {
   isSeerrConfigured,
   getSeerrMediaId,
@@ -60,9 +62,16 @@ export async function POST(request: NextRequest) {
     const itemMap = new Map(dbItems.map((item) => [item.id, item]));
 
     const results: DeleteResult[] = [];
+    const protectedIds = new Set(db.select().from(permanentItems).all().map((row) => row.itemId));
+    const pendingIds = getPossiblePermanentMatchIds();
 
     for (const id of ids) {
       const item = itemMap.get(id);
+      if (protectedIds.has(id) || pendingIds.has(id)) {
+        results.push({ id, title: item?.title || "Unknown", success: false,
+          error: "This item is permanent or may match a moved permanent item. Resolve its protection before deleting." });
+        continue;
+      }
       if (!item) {
         results.push({
           id,
@@ -130,6 +139,7 @@ export async function POST(request: NextRequest) {
 
     const succeeded = results.filter((r) => r.success).length;
     const failed = results.filter((r) => !r.success).length;
+    invalidatePruningScores();
 
     return NextResponse.json({ succeeded, failed, results });
   } catch (error) {

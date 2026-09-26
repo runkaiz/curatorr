@@ -12,12 +12,14 @@ export const libraryItems = sqliteTable(
   {
     id: text("id").primaryKey(), // Plex ratingKey
     plexSectionId: text("plex_section_id"), // Plex library section key
+    identityGuids: text("identity_guids"), // Stable Plex / TVDB / TMDB identities
     type: text("type").notNull(), // "movie" | "show"
     title: text("title").notNull(),
     year: integer("year"),
     genre: text("genre"), // JSON array string
     plexRating: real("plex_rating"),
     addedAt: integer("added_at"),
+    latestMediaAddedAt: integer("latest_media_added_at"),
     lastViewedAt: integer("last_viewed_at"),
     playCount: integer("play_count").notNull().default(0),
     fileSizeBytes: integer("file_size_bytes").notNull().default(0),
@@ -28,6 +30,7 @@ export const libraryItems = sqliteTable(
     thumbUrl: text("thumb_url"),
     updatedAt: integer("updated_at"),
     pruningScore: integer("pruning_score"),
+    pruningDetails: text("pruning_details"), // Explained recommendation snapshot
     deletedFromSource: integer("deleted_from_source"), // timestamp when item was removed from Plex
   },
   (table) => ({
@@ -51,6 +54,7 @@ export const watchHistory = sqliteTable(
       .notNull()
       .references(() => libraryItems.id, { onDelete: "cascade" }),
     user: text("user").notNull(),
+    mediaKey: text("media_key").notNull().default(""), // Movie ID or stable season/episode key
     watchedAt: integer("watched_at").notNull(),
     percentComplete: integer("percent_complete").notNull().default(0),
     wasCompleted: integer("was_completed", { mode: "boolean" })
@@ -61,6 +65,7 @@ export const watchHistory = sqliteTable(
     uniqueEntry: uniqueIndex("watch_history_unique_idx").on(
       table.itemId,
       table.user,
+      table.mediaKey,
       table.watchedAt
     ),
     itemIdx: index("watch_history_item_idx").on(table.itemId),
@@ -87,6 +92,14 @@ export const syncSections = sqliteTable("sync_sections", {
   title: text("title").notNull(),
   type: text("type").notNull(), // "movie" | "show"
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  historySyncedAt: integer("history_synced_at"),
+  historyStartedAt: integer("history_started_at"),
+  historyComplete: integer("history_complete", { mode: "boolean" }).notNull().default(false),
+});
+
+export const plexItemAliases = sqliteTable("plex_item_aliases", {
+  oldId: text("old_id").primaryKey(),
+  itemId: text("item_id").notNull().references(() => libraryItems.id, { onDelete: "cascade" }),
 });
 
 // Type exports

@@ -1,5 +1,5 @@
 import { db } from "@/db";
-import { libraryItems, permanentItems, watchHistory, syncSections } from "@/db/schema";
+import { libraryItems, permanentItems, watchHistory, syncSections, plexItemAliases } from "@/db/schema";
 import { getLibrarySections, getLibraryItems } from "./plex";
 import { getLibraryMediaInfo, getHistory } from "./tautulli";
 import type {
@@ -7,21 +7,31 @@ import type {
   PlexMediaItem,
   SyncResult,
   TautulliMediaItem,
+  TautulliHistoryEntry,
 } from "./types";
 import { eq, sql } from "drizzle-orm";
-import { computeAllPruningScores } from "./pruning";
+import { computeAllPruningScores, invalidatePruningScores } from "./pruning";
 import { reconcilePermanentCollection } from "./permanent-collection";
+import { relinkPermanentItems } from "./library-identity";
 
 const BATCH_SIZE = 500;
+let activeSync: Promise<SyncResult> | null = null;
 
-export async function syncLibrary(
+export function syncLibrary(onProgress?: (msg: string) => void): Promise<SyncResult> {
+  if (!activeSync) activeSync = runSync(onProgress).finally(() => { activeSync = null; });
+  return activeSync;
+}
+
+async function runSync(
   onProgress?: (msg: string) => void
 ): Promise<SyncResult> {
   const startTime = Date.now();
+  invalidatePruningScores();
   let itemsSynced = 0;
   let historyEntries = 0;
   const knownItemIds = new Set<string>();
   const syncedPlexItems: PlexMediaItem[] = [];
+  const histories: { sectionId: string; entries: TautulliHistoryEntry[] }[] = [];
 
   onProgress?.("Fetching library sections from Plex...");
   const allSections = await getLibrarySections();
@@ -49,12 +59,18 @@ export async function syncLibrary(
     );
   }
 
+  // Invalidate every selected section together, including during a long sync.
+  db.transaction((tx) => {
+    for (const section of sections) tx.update(syncSections).set({ historyComplete: false })
+      .where(eq(syncSections.key, section.key)).run();
+  });
+  invalidatePruningScores();
   for (const section of sections) {
     onProgress?.(`Fetching items from "${section.title}" (${section.type})...`);
 
     // Fetch from Plex and Tautulli in parallel
     const [plexItems, tautulliItems] = await Promise.all([
-      getLibraryItems(section.key, section.type),
+      getLibraryItems(section.key, section.type, true),
       getLibraryMediaInfo(section.key),
     ]);
     syncedPlexItems.push(...plexItems);
@@ -91,46 +107,46 @@ export async function syncLibrary(
     onProgress?.(`Fetching watch history for "${section.title}"...`);
     const historyData = await getHistory(section.key);
 
-    onProgress?.(
-      `Syncing ${historyData.length} history entries for "${section.title}"...`
-    );
-
-    for (let i = 0; i < historyData.length; i += BATCH_SIZE) {
-      const batch = historyData.slice(i, i + BATCH_SIZE);
-
-      db.transaction((tx) => {
-        for (const entry of batch) {
-          if (!entry.ratingKey || !entry.user || !entry.date) continue;
-          if (!knownItemIds.has(entry.ratingKey)) continue;
-          tx.insert(watchHistory)
-            .values({
-              itemId: entry.ratingKey,
-              user: entry.user,
-              watchedAt: entry.date,
-              percentComplete: entry.percentComplete,
-              wasCompleted: entry.wasCompleted,
-            })
-            .onConflictDoUpdate({
-              target: [
-                watchHistory.itemId,
-                watchHistory.user,
-                watchHistory.watchedAt,
-              ],
-              set: {
-                percentComplete: sql`excluded.percent_complete`,
-                wasCompleted: sql`excluded.was_completed`,
-              },
-            })
-            .run();
-        }
-      });
-
-      historyEntries += batch.length;
-      onProgress?.(
-        `Synced ${Math.min(i + BATCH_SIZE, historyData.length)}/${historyData.length} history entries`
-      );
-    }
+    histories.push({ sectionId: section.key, entries: historyData });
   }
+
+  // Restore permanent markers before cleanup and collection write-back. All
+  // destination items must be known before any old episode history is mapped.
+  const recovery = relinkPermanentItems(
+    syncedPlexItems,
+    new Set(sections.map((section) => section.key)),
+    new Set(allSections.map((section) => section.key))
+  );
+  for (const warning of recovery.warnings) onProgress?.(warning);
+  const aliases = new Map(db.select().from(plexItemAliases).all().map((row) => [row.oldId, row.itemId]));
+  for (const { sectionId, entries } of histories) {
+    db.transaction((tx) => {
+      for (const entry of entries) {
+        const itemId = knownItemIds.has(entry.ratingKey) ? entry.ratingKey : aliases.get(entry.ratingKey);
+        if (!itemId || !knownItemIds.has(itemId)) continue;
+        tx.insert(watchHistory).values({
+          itemId, mediaKey: entry.mediaKey, user: entry.user, watchedAt: entry.date,
+          percentComplete: entry.percentComplete, wasCompleted: entry.wasCompleted,
+        }).onConflictDoUpdate({
+          target: [watchHistory.itemId, watchHistory.user, watchHistory.mediaKey, watchHistory.watchedAt],
+          set: { percentComplete: entry.percentComplete, wasCompleted: entry.wasCompleted },
+        }).run();
+        historyEntries++;
+      }
+      tx.update(syncSections).set({
+        historyComplete: true,
+        historySyncedAt: Math.floor(Date.now() / 1000),
+        historyStartedAt: entries.reduce<number | null>((oldest, entry) => Math.min(oldest ?? entry.date, entry.date), null),
+      }).where(eq(syncSections.key, sectionId)).run();
+    });
+  }
+  db.run(sql`
+    UPDATE library_items SET
+      play_count = MAX(play_count, (SELECT COUNT(*) FROM watch_history wh WHERE wh.item_id = library_items.id)),
+      last_viewed_at = NULLIF(MAX(COALESCE(last_viewed_at, 0), COALESCE(
+        (SELECT MAX(watched_at) FROM watch_history wh WHERE wh.item_id = library_items.id), 0)), 0)
+    WHERE id IN (SELECT DISTINCT item_id FROM watch_history)
+  `);
 
   // Remove items from DB that no longer exist in Plex
   // Permanent items are preserved and flagged instead of deleted
@@ -219,18 +235,22 @@ export async function syncLibrary(
     itemsRemoved,
     durationMs,
     permanentCollection,
+    permanentRelinked: recovery.relinked,
+    warnings: recovery.warnings,
   };
 }
 
 interface MergedLibraryItem {
   id: string;
   plexSectionId: string | null;
+  identityGuids: string;
   type: string;
   title: string;
   year: number | null;
   genre: string | null;
   plexRating: number | null;
   addedAt: number | null;
+  latestMediaAddedAt: number | null;
   lastViewedAt: number | null;
   playCount: number;
   fileSizeBytes: number;
@@ -248,18 +268,20 @@ function mergeItem(
 ): MergedLibraryItem {
   // Prefer Tautulli for file size (especially for shows), play count, last played
   const fileSize = tautulli?.fileSize || plex.fileSize;
-  const playCount = tautulli?.playCount ?? plex.viewCount;
-  const lastViewed = tautulli?.lastPlayed ?? plex.lastViewedAt;
+  const playCount = Math.max(tautulli?.playCount ?? 0, plex.viewCount);
+  const lastViewed = Math.max(tautulli?.lastPlayed ?? 0, plex.lastViewedAt ?? 0);
 
   return {
     id: plex.ratingKey,
     plexSectionId: plex.librarySectionId,
+    identityGuids: JSON.stringify(plex.guids),
     type: plex.type,
     title: plex.title,
     year: plex.year,
     genre: plex.genres.length > 0 ? JSON.stringify(plex.genres) : null,
     plexRating: plex.rating,
     addedAt: plex.addedAt,
+    latestMediaAddedAt: plex.latestMediaAddedAt,
     lastViewedAt: lastViewed || null,
     playCount,
     fileSizeBytes: fileSize,
@@ -282,11 +304,13 @@ function upsertLibraryItems(items: MergedLibraryItem[]): void {
           set: {
             type: sql`excluded.type`,
             plexSectionId: sql`excluded.plex_section_id`,
+            identityGuids: sql`excluded.identity_guids`,
             title: sql`excluded.title`,
             year: sql`excluded.year`,
             genre: sql`excluded.genre`,
             plexRating: sql`excluded.plex_rating`,
             addedAt: sql`excluded.added_at`,
+            latestMediaAddedAt: sql`excluded.latest_media_added_at`,
             lastViewedAt: sql`excluded.last_viewed_at`,
             playCount: sql`excluded.play_count`,
             fileSizeBytes: sql`excluded.file_size_bytes`,
