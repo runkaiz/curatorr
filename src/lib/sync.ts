@@ -8,7 +8,7 @@ import type {
   SyncResult,
   TautulliMediaItem,
 } from "./types";
-import { eq, sql, isNotNull } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { computeAllPruningScores } from "./pruning";
 import { reconcilePermanentCollection } from "./permanent-collection";
 
@@ -25,6 +25,14 @@ export async function syncLibrary(
 
   onProgress?.("Fetching library sections from Plex...");
   const allSections = await getLibrarySections();
+  // Keep the Plex catalog current while preserving explicit choices.
+  db.transaction((tx) => {
+    for (const section of allSections) {
+      tx.insert(syncSections).values({ ...section, enabled: true })
+        .onConflictDoUpdate({ target: syncSections.key, set: { title: section.title, type: section.type } })
+        .run();
+    }
+  });
 
   // Filter to only enabled sections (if configured)
   const savedSections = db.select().from(syncSections).all();
@@ -132,11 +140,13 @@ export async function syncLibrary(
     onProgress?.("Removing items no longer in Plex...");
 
     // Fetch all existing IDs from the database and diff against known
+    const syncedSectionIds = new Set(sections.map((section) => section.key));
     const existingRows = db
-      .select({ id: libraryItems.id })
+      .select({ id: libraryItems.id, plexSectionId: libraryItems.plexSectionId })
       .from(libraryItems)
       .all();
     const idsToRemove = existingRows
+      .filter((row) => row.plexSectionId && syncedSectionIds.has(row.plexSectionId))
       .map((row) => row.id)
       .filter((id) => !knownItemIds.has(id));
 
@@ -160,12 +170,6 @@ export async function syncLibrary(
         .run();
       itemsRemoved += batch.length;
     }
-
-    // Clear deletedFromSource flag for any previously-flagged items still in Plex
-    db.update(libraryItems)
-      .set({ deletedFromSource: null })
-      .where(isNotNull(libraryItems.deletedFromSource))
-      .run();
 
     // Flag permanent items as deleted from source
     if (protectedIds.length > 0) {

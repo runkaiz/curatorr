@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/db";
-import { libraryItems, permanentItems, watchHistory } from "@/db/schema";
+import { libraryItems, permanentItems, syncSections, watchHistory } from "@/db/schema";
 import { eq, sql, and, like, gte, lt, desc, asc, isNotNull } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const type = searchParams.get("type");
+    const section = searchParams.get("section");
     const genre = searchParams.get("genre");
     const decade = searchParams.get("decade");
     const search = searchParams.get("q")?.trim() || "";
@@ -34,6 +35,9 @@ export async function GET(request: NextRequest) {
 
     if (type && (type === "movie" || type === "show")) {
       conditions.push(eq(libraryItems.type, type));
+    }
+    if (section) {
+      conditions.push(eq(libraryItems.plexSectionId, section));
     }
 
     if (genre) {
@@ -68,6 +72,8 @@ export async function GET(request: NextRequest) {
     const items = db
       .select({
         id: libraryItems.id,
+        plexSectionId: libraryItems.plexSectionId,
+        sectionTitle: syncSections.title,
         type: libraryItems.type,
         title: libraryItems.title,
         year: libraryItems.year,
@@ -89,6 +95,7 @@ export async function GET(request: NextRequest) {
       })
       .from(libraryItems)
       .leftJoin(permanentItems, eq(libraryItems.id, permanentItems.itemId))
+      .leftJoin(syncSections, eq(libraryItems.plexSectionId, syncSections.key))
       .where(where)
       .orderBy(orderDir)
       .limit(limit)
@@ -316,8 +323,12 @@ function handleFilteredQuery(
   const [{ count }] = db.all(sql.raw(countSql)) as [{ count: number }];
 
   // Normalize the raw SQL results to match the Drizzle output shape
+  const sectionTitles = new Map(db.select({ key: syncSections.key, title: syncSections.title })
+    .from(syncSections).all().map((section) => [section.key, section.title]));
   const normalized = (items as Record<string, unknown>[]).map((row) => ({
     id: row.id,
+    plexSectionId: row.plex_section_id,
+    sectionTitle: sectionTitles.get(String(row.plex_section_id)) || null,
     type: row.type,
     title: row.title,
     year: row.year,

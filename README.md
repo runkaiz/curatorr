@@ -24,8 +24,15 @@ curl -X POST \
 ```
 
 The collection is created by Plex when the first permanent item receives the
-tag. Movie and TV libraries each hold their own same-named collection, which
-Plex presents as related collections.
+tag. TV, Anime, and Movies libraries each hold their own same-named collection,
+which Plex presents as related collections.
+
+## Libraries
+
+Curatorr discovers Plex movie and show libraries by their Plex section IDs.
+The public catalog filters by library name, so TV and Anime remain separate
+even though Plex classifies both as shows. New libraries are enabled on the
+next sync; the admin Libraries menu can disable any library explicitly.
 
 ## Getting Started
 

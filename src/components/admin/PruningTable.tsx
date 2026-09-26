@@ -12,6 +12,7 @@ import { useToast } from "@/components/shared/Toast";
 interface LibraryItem {
   id: string;
   type: string;
+  sectionTitle: string | null;
   title: string;
   year: number | null;
   plexRating: number | null;
@@ -360,7 +361,7 @@ export default function PruningTable({ refreshKey }: { refreshKey: number }) {
                 </td>
                 <td className="px-3 py-2 text-slate-400">
                   <span className="rounded bg-slate-800 px-1.5 py-0.5 text-xs">
-                    {item.type === "show" ? "TV" : "Movie"}
+                    {item.sectionTitle || (item.type === "show" ? "TV" : "Movies")}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-300">

@@ -139,7 +139,7 @@ export default function LibrarySelector() {
                       {section.title}
                     </p>
                     <p className="text-xs text-slate-500 capitalize">
-                      {section.type === "show" ? "TV Shows" : "Movies"}
+                      {section.type === "show" ? "Shows" : "Movies"}
                     </p>
                   </div>
                 </label>

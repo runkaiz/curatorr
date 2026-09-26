@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { libraryItems, permanentItems } from "@/db/schema";
+import { libraryItems, permanentItems, syncSections } from "@/db/schema";
 import { eq, sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,14 @@ export async function GET() {
         showCount: sql<number>`coalesce(sum(case when ${libraryItems.type} = 'show' then 1 else 0 end), 0)`,
       })
       .from(libraryItems)
+      .all();
+
+    const sectionCounts = db.select({
+      title: syncSections.title,
+      count: sql<number>`count(${libraryItems.id})`,
+    }).from(syncSections)
+      .innerJoin(libraryItems, eq(libraryItems.plexSectionId, syncSections.key))
+      .groupBy(syncSections.key)
       .all();
 
     // Purgeable estimate: never-watched, non-permanent items
@@ -63,6 +71,7 @@ export async function GET() {
       totalItems: totals.totalItems,
       movieCount: totals.movieCount,
       showCount: totals.showCount,
+      sectionCounts,
       purgeableSize: purgeable.purgeableSize,
       purgeableCount: purgeable.purgeableCount,
       largestItem: largestItem || null,

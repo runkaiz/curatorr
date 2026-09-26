@@ -2,12 +2,13 @@
 
 interface FilterBarProps {
   genres: string[];
-  type: string;
+  sections: { key: string; title: string }[];
+  section: string;
   genre: string;
   decade: string;
   sort: string;
   search: string;
-  onTypeChange: (v: string) => void;
+  onSectionChange: (v: string) => void;
   onGenreChange: (v: string) => void;
   onDecadeChange: (v: string) => void;
   onSortChange: (v: string) => void;
@@ -25,12 +26,13 @@ const sortOptions = [
 
 export default function FilterBar({
   genres,
-  type,
+  sections,
+  section,
   genre,
   decade,
   sort,
   search,
-  onTypeChange,
+  onSectionChange,
   onGenreChange,
   onDecadeChange,
   onSortChange,
@@ -65,13 +67,12 @@ export default function FilterBar({
       </div>
 
       <select
-        value={type}
-        onChange={(e) => onTypeChange(e.target.value)}
+        value={section}
+        onChange={(e) => onSectionChange(e.target.value)}
         className={selectClasses}
       >
-        <option value="">All Types</option>
-        <option value="movie">Movies</option>
-        <option value="show">TV Shows</option>
+        <option value="">All Libraries</option>
+        {sections.map((s) => <option key={s.key} value={s.key}>{s.title}</option>)}
       </select>
 
       <select

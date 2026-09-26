@@ -9,6 +9,7 @@ interface Stats {
   totalItems: number;
   movieCount: number;
   showCount: number;
+  sectionCounts: { title: string; count: number }[];
   purgeableSize: number;
   purgeableCount: number;
   largestItem: { id: string; title: string; size: number; type: string } | null;
@@ -76,9 +77,9 @@ export default function StatsCards({ refreshKey }: { refreshKey: number }) {
       sub: `${stats.totalItems} items`,
     },
     {
-      label: "Movies / Shows",
-      value: `${stats.movieCount} / ${stats.showCount}`,
-      sub: `${stats.totalItems} total`,
+      label: "Libraries",
+      value: String(stats.sectionCounts.length),
+      sub: stats.sectionCounts.map((section) => `${section.title}: ${section.count}`).join(" · ") || "No synced libraries",
     },
     {
       label: "Purgeable",

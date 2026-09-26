@@ -8,6 +8,7 @@ import { useToast } from "@/components/shared/Toast";
 interface LibraryItem {
   id: string;
   type: string;
+  sectionTitle: string | null;
   title: string;
   year: number | null;
   plexRating: number | null;
@@ -24,6 +25,7 @@ interface LibraryResponse {
 }
 
 export default function PosterGrid() {
+  const [sections, setSections] = useState<{ key: string; title: string }[]>([]);
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [permanentItems, setPermanentItems] = useState<LibraryItem[]>([]);
   const [genres, setGenres] = useState<string[]>([]);
@@ -36,7 +38,13 @@ export default function PosterGrid() {
   const { toast } = useToast();
 
   // Filters
-  const [type, setType] = useState("");
+  const [section, setSection] = useState("");
+  useEffect(() => {
+    fetch("/api/library/sections")
+      .then((response) => response.json())
+      .then((data) => setSections(data.sections || []))
+      .catch(() => setSections([]));
+  }, []);
   const [genre, setGenre] = useState("");
   const [decade, setDecade] = useState("");
   const [sort, setSort] = useState("added_at");
@@ -82,7 +90,7 @@ export default function PosterGrid() {
       setError(null);
       try {
         const params = new URLSearchParams();
-        if (type) params.set("type", type);
+        if (section) params.set("section", section);
         if (genre) params.set("genre", genre);
         if (decade) params.set("decade", decade);
         if (debouncedSearch) params.set("q", debouncedSearch);
@@ -112,7 +120,7 @@ export default function PosterGrid() {
         setLoading(false);
       }
     },
-    [type, genre, decade, debouncedSearch, sort, toast]
+    [section, genre, decade, debouncedSearch, sort, toast]
   );
 
   // Reset to page 1 when filters change
@@ -128,19 +136,20 @@ export default function PosterGrid() {
     }
   }
 
-  const hasFilters = type || genre || decade || debouncedSearch;
+  const hasFilters = section || genre || decade || debouncedSearch;
   const showPermanent = permanentItems.length > 0 && !hasFilters;
 
   return (
     <div className="space-y-6">
       <FilterBar
         genres={genres}
-        type={type}
+        sections={sections}
+        section={section}
         genre={genre}
         decade={decade}
         sort={sort}
         search={search}
-        onTypeChange={(v) => setType(v)}
+        onSectionChange={(v) => setSection(v)}
         onGenreChange={(v) => setGenre(v)}
         onDecadeChange={(v) => setDecade(v)}
         onSortChange={(v) => setSort(v)}
@@ -174,6 +183,7 @@ export default function PosterGrid() {
                 year={item.year}
                 plexRating={item.plexRating}
                 type={item.type}
+                sectionTitle={item.sectionTitle}
                 isPermanent={item.isPermanent}
                 deletedFromSource={!!item.deletedFromSource}
               />
@@ -210,6 +220,7 @@ export default function PosterGrid() {
                 year={item.year}
                 plexRating={item.plexRating}
                 type={item.type}
+                sectionTitle={item.sectionTitle}
                 isPermanent={item.isPermanent}
                 deletedFromSource={!!item.deletedFromSource}
               />
@@ -259,6 +270,7 @@ export default function PosterGrid() {
                 year={item.year}
                 plexRating={item.plexRating}
                 type={item.type}
+                sectionTitle={item.sectionTitle}
                 isPermanent={item.isPermanent}
                 deletedFromSource={!!item.deletedFromSource}
               />

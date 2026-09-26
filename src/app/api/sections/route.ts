@@ -15,7 +15,6 @@ export async function GET() {
 
     const savedMap = new Map(savedSections.map((s) => [s.key, s]));
 
-    // If no saved sections exist yet, all are enabled by default
     const hasConfig = savedSections.length > 0;
 
     const merged = plexSections.map((section) => {
@@ -24,7 +23,7 @@ export async function GET() {
         key: section.key,
         title: section.title,
         type: section.type,
-        enabled: saved ? saved.enabled : !hasConfig,
+        enabled: saved ? saved.enabled : true,
       };
     });
 

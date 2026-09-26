@@ -8,6 +8,7 @@ interface PosterCardProps {
   year: number | null;
   plexRating: number | null;
   type: string;
+  sectionTitle?: string | null;
   isPermanent: boolean;
   deletedFromSource?: boolean;
 }
@@ -18,6 +19,7 @@ export default function PosterCard({
   year,
   plexRating,
   type,
+  sectionTitle,
   isPermanent,
   deletedFromSource,
 }: PosterCardProps) {
@@ -70,7 +72,7 @@ export default function PosterCard({
         </h3>
         <div className="mt-1 flex items-center gap-2 text-xs text-slate-300">
           {year && <span>{year}</span>}
-          <span className="uppercase">{type === "show" ? "TV" : type}</span>
+          <span>{sectionTitle || (type === "show" ? "TV" : "Movies")}</span>
           {plexRating !== null && (
             <span className="ml-auto rounded bg-white/20 px-1.5 py-0.5 font-medium">
               {formatRating(plexRating)}
