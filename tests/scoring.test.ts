@@ -141,3 +141,38 @@ test("an incomplete Plex catalog cannot certify that a title or new episode is a
     await assert.rejects(getLibraryItems("tv", "show", true), /episode catalog ended early/);
   } finally { globalThis.fetch = original; }
 });
+
+test("show sizes include old episodes, specials, all versions and parts across pages without duplicating shared files", async () => {
+  const original = globalThis.fetch;
+  process.env.PLEX_URL = "http://plex.invalid"; process.env.PLEX_TOKEN = "test";
+  const episodes = Array.from({ length: 201 }, (_, i) => ({
+    ratingKey: `ep${i}`, grandparentRatingKey: "show", addedAt: now - 500 * DAY,
+    Media: [{ Part: [{ file: `/tv/${i}.mkv`, size: "10" }] }],
+  }));
+  episodes[200].Media = [
+    { Part: [{ file: "/tv/0.mkv", size: "10" }, { file: "/tv/part2.mkv", size: "20" }] },
+    { Part: [{ file: "/tv/alternate.mkv", size: "30" }] },
+  ];
+  const starts: number[] = [];
+  let reportedCount = 201;
+  try {
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(String(input));
+      if (url.searchParams.get("type") !== "4") return Response.json({ MediaContainer: {
+        totalSize: 1, Metadata: [{ ratingKey: "show", title: "Show", leafCount: 201 }],
+      } });
+      const start = Number(url.searchParams.get("X-Plex-Container-Start"));
+      starts.push(start);
+      return Response.json({ MediaContainer: { totalSize: reportedCount, Metadata: episodes.slice(start, start + 200) } });
+    }) as typeof fetch;
+    const [show] = await getLibraryItems("tv", "show", true);
+    assert.equal(show.fileSize, 2050);
+    assert.equal(show.latestMediaAddedAt, now - 500 * DAY);
+    assert.deepEqual(starts, [0, 200]);
+    episodes.pop();
+    await assert.rejects(getLibraryItems("tv", "show", true), /episode catalog ended early/);
+    // A complete-looking endpoint can still omit episodes known by leafCount.
+    reportedCount = 200;
+    await assert.rejects(getLibraryItems("tv", "show", true), /episode catalog is incomplete/);
+  } finally { globalThis.fetch = original; }
+});

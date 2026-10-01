@@ -266,8 +266,9 @@ function mergeItem(
   plex: PlexMediaItem,
   tautulli?: TautulliMediaItem
 ): MergedLibraryItem {
-  // Prefer Tautulli for file size (especially for shows), play count, last played
-  const fileSize = tautulli?.fileSize || plex.fileSize;
+  // Plex sizes reflect the current files; Tautulli remains a movie fallback.
+  // Shows have freshly aggregated episode totals, including a valid empty show.
+  const fileSize = plex.type === "show" ? plex.fileSize : plex.fileSize || tautulli?.fileSize || 0;
   const playCount = Math.max(tautulli?.playCount ?? 0, plex.viewCount);
   const lastViewed = Math.max(tautulli?.lastPlayed ?? 0, plex.lastViewedAt ?? 0);
 

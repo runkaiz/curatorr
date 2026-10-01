@@ -34,6 +34,14 @@ The public catalog filters by library name, so TV and Anime remain separate
 even though Plex classifies both as shows. New libraries are enabled on the
 next sync; the admin Libraries menu can disable any library explicitly.
 
+TV and Anime sizes are calculated directly from Plex on every sync by paging
+through all episodes and summing their media file parts, including specials
+and alternate versions. Shared multi-episode files are counted once per show.
+Totals are saved in Curatorr’s database and do not depend on Tautulli’s media
+info cache. Missing file sizes or incomplete episode catalogs stop the sync
+before overwriting that library’s saved sizes. This requires more Plex reads
+than scanning only recent episodes. Tautulli still supplies watch history.
+
 Moving a permanent title between libraries can change its Plex ID. Sync now
 retains Plex/TVDB/TMDB identifiers and reconnects the permanent marker, note,
 and watch history before removing stale records or updating Plex collections.

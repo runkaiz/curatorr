@@ -149,7 +149,9 @@ test("scoring, library moves, and API behavior with an isolated database", async
     const originalFetch = globalThis.fetch;
     const movie = { ratingKey: "movie", title: "Movie", year: 2000, type: "movie", addedAt: now - 500 * DAY,
       viewCount: 4, lastViewedAt: now - DAY, Media: [{ Part: [{ size: 100 }] }] };
-    const anime = { ratingKey: "new-anime", title: "Moved Anime", year: 2000, type: "show", leafCount: 12,
+    let episodeSize: number | null = 1600;
+    let tautulliSize = 1200;
+    const anime = { ratingKey: "new-anime", title: "Moved Anime", year: 2000, type: "show", leafCount: 1,
       addedAt: now - 500 * DAY, guid: "plex://show/abc", Guid: [{ id: "tvdb://123" }] };
     try {
       globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
@@ -161,7 +163,7 @@ test("scoring, library moves, and API behavior with an isolated database", async
           ] } });
           const id = url.pathname.split("/")[3];
           const metadata = url.searchParams.get("type") === "4"
-            ? (id === "anime" ? [{ ratingKey: "ep1", grandparentRatingKey: "new-anime", addedAt: now - DAY }] : [])
+            ? (id === "anime" ? [{ ratingKey: "ep1", grandparentRatingKey: "new-anime", addedAt: now - DAY, Media: [{ Part: [{ size: episodeSize }] }] }] : [])
             : id === "anime" ? [anime] : id === "movies" ? [movie] : [];
           return Response.json({ MediaContainer: { totalSize: metadata.length, size: metadata.length, Metadata: metadata } });
         }
@@ -170,7 +172,7 @@ test("scoring, library moves, and API behavior with an isolated database", async
         const data = cmd === "get_history" ? (sectionId === "tv" ? [{ media_type: "episode", rating_key: "old-ep1",
           grandparent_rating_key: "old-anime", user: "viewer", date: now - 300 * DAY, watched_status: 1, percent_complete: 100 }] : [])
           : sectionId === "movies" ? [{ rating_key: "movie", file_size: 100, play_count: 0, last_played: now - 400 * DAY }]
-          : sectionId === "anime" ? [{ rating_key: "new-anime", file_size: 1200, play_count: 0 }] : [];
+          : sectionId === "anime" ? [{ rating_key: "new-anime", file_size: tautulliSize, play_count: 0 }] : [];
         return Response.json({ response: { result: "success", data: { recordsFiltered: data.length, data } } });
       }) as typeof fetch;
       const { syncLibrary } = await import("../src/lib/sync");
@@ -182,11 +184,19 @@ test("scoring, library moves, and API behavior with an isolated database", async
       assert.equal(db.select().from(permanentItems).get()!.note, "Keep forever");
       assert.equal(db.select().from(watchHistory).get()!.itemId, "new-anime");
       const target = db.select().from(libraryItems).where(eq(libraryItems.id, "new-anime")).get()!;
+      assert.equal(target.fileSizeBytes, 1600);
       assert.equal(target.latestMediaAddedAt, now - DAY); assert.equal(target.pruningScore, 0);
       const mergedMovie = db.select().from(libraryItems).where(eq(libraryItems.id, "movie")).get()!;
       assert.equal(mergedMovie.playCount, 4); assert.equal(mergedMovie.lastViewedAt, now - DAY);
+      tautulliSize = 0; // Tautulli flushed its show sizes.
+      episodeSize = 900; // The file was replaced by a smaller version.
       assert.equal((await syncLibrary()).permanentRelinked, 0);
+      assert.equal(db.select().from(libraryItems).where(eq(libraryItems.id, "new-anime")).get()!.fileSizeBytes, 900);
       assert.equal(db.select().from(watchHistory).all().length, 1);
+      episodeSize = null;
+      await assert.rejects(syncLibrary(), /file size is missing or invalid/);
+      assert.equal(db.select().from(libraryItems).where(eq(libraryItems.id, "new-anime")).get()!.fileSizeBytes, 900);
+      assert.equal(db.select().from(syncSections).where(eq(syncSections.key, "anime")).get()!.historyComplete, false);
     } finally { globalThis.fetch = originalFetch; }
   });
 

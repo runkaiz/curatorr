@@ -1,6 +1,5 @@
 import { XMLParser } from "fast-xml-parser";
 import type { PlexSection, PlexMediaItem } from "./types";
-import { DAY, POLICY } from "./pruning-score";
 
 const parser = new XMLParser({
   ignoreAttributes: false,
@@ -109,7 +108,7 @@ const PAGE_SIZE = 200;
 export async function getLibraryItems(
   sectionId: string,
   sectionType: "movie" | "show",
-  includeRecentAdditions = false
+  includeEpisodeDetails = false
 ): Promise<PlexMediaItem[]> {
   const items: PlexMediaItem[] = [];
   let start = 0;
@@ -146,11 +145,15 @@ export async function getLibraryItems(
     start += rawItems.length;
   }
 
-  if (sectionType === "show" && includeRecentAdditions) {
-    // A new episode should give an old show the same grace period as a new
-    // title. Only read the recent end of the episode catalog.
-    const cutoff = Math.floor(Date.now() / 1000) - POLICY.newDays * DAY;
+  if (sectionType === "show" && includeEpisodeDetails) {
+    // Show metadata has no Media/Part sizes. Walk the entire episode catalog
+    // so totals reflect additions, removals and replacements without relying
+    // on Tautulli's disposable media-info cache.
     const byId = new Map(items.map((item) => [item.ratingKey, item]));
+    const totals = new Map(items.map((item) => [item.ratingKey, 0]));
+    const counts = new Map(items.map((item) => [item.ratingKey, 0]));
+    const seenEpisodes = new Set<string>();
+    const seenParts = new Map(items.map((item) => [item.ratingKey, new Set<string>()]));
     let episodeStart = 0;
     while (true) {
       const data = await plexFetch(`/library/sections/${sectionId}/all`, {
@@ -168,15 +171,45 @@ export async function getLibraryItems(
         break;
       }
       for (const episode of episodes) {
-        const show = byId.get(String(episode.grandparentRatingKey));
+        const showId = String(episode.grandparentRatingKey);
+        const show = byId.get(showId);
+        const episodeId = String(episode.ratingKey || "");
+        if (!show || !episodeId || seenEpisodes.has(episodeId)) {
+          throw new Error(`Plex returned an inconsistent episode catalog for section ${sectionId}; retry sync`);
+        }
+        seenEpisodes.add(episodeId);
+        counts.set(showId, counts.get(showId)! + 1);
+        const media = ensureArray(episode.Media as Record<string, unknown>[]);
+        if (!media.length) throw new Error(`Plex file sizes are missing for episode ${episodeId}; previous library sizes retained`);
+        for (const version of media) {
+          const parts = ensureArray(version.Part as Record<string, unknown>[]);
+          if (!parts.length) throw new Error(`Plex file sizes are missing for episode ${episodeId}; previous library sizes retained`);
+          for (const part of parts) {
+            const size = Number(part.size);
+            if (!Number.isSafeInteger(size) || size <= 0) {
+              throw new Error(`Plex file size is missing or invalid for episode ${episodeId}; previous library sizes retained`);
+            }
+            // Multi-episode files can be attached to more than one episode.
+            const key = part.file ? `file:${part.file}` : part.id ? `id:${part.id}` : null;
+            const seen = seenParts.get(showId)!;
+            if (key && seen.has(key)) continue;
+            if (key) seen.add(key);
+            totals.set(showId, totals.get(showId)! + size);
+          }
+        }
         const addedAt = toInt(episode.addedAt);
         if (show && addedAt > (show.latestMediaAddedAt || 0)) {
           show.latestMediaAddedAt = addedAt;
         }
       }
       episodeStart += episodes.length;
-      if (episodes.some((episode) => toInt(episode.addedAt) < cutoff) ||
-          episodeStart >= count) break;
+      if (episodeStart >= count) break;
+    }
+    for (const show of items) {
+      if (show.episodeCount !== null && counts.get(show.ratingKey)! < show.episodeCount) {
+        throw new Error(`Plex episode catalog is incomplete for show ${show.ratingKey}; previous library sizes retained`);
+      }
+      show.fileSize = totals.get(show.ratingKey)!;
     }
   }
   return items;
